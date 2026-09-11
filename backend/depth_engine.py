@@ -1,4 +1,7 @@
-﻿import torch
+﻿import os
+os.environ['HF_HUB_OFFLINE'] = '1'
+os.environ['TRANSFORMERS_OFFLINE'] = '1'
+import torch
 import numpy as np
 from PIL import Image
 from transformers import AutoImageProcessor, AutoModelForDepthEstimation
@@ -26,3 +29,4 @@ class DepthEngine:
         d_min, d_max = np.nanmin(prediction), np.nanmax(prediction)
         norm_depth = (prediction - d_min) / (d_max - d_min + 1e-8)
         return norm_depth.astype(np.float32)
+
