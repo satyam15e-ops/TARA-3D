@@ -1,5 +1,6 @@
 ﻿from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from PIL import Image
 import numpy as np
 import io
@@ -18,17 +19,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+os.makedirs("outputs", exist_ok=True)
+app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
+
 engine = DepthEngine()
 calibrator = HuberRANSACCalibrator()
-os.makedirs("outputs", exist_ok=True)
 
 @app.post("/api/reconstruct")
 async def reconstruct(file: UploadFile = File(...)):
     contents = await file.read()
     image = Image.open(io.BytesIO(contents)).convert("RGB")
     rel_depth = engine.infer(image)
-    base_dem = np.full_like(rel_depth, 250.0)
-    metric_dsm, scale, shift = calibrator.calibrate(rel_depth, base_dem)
+    metric_dsm, scale, shift = calibrator.calibrate(rel_depth)
     output_png = "outputs/latest_dsm.png"
     export_metric_dsm_with_legend(metric_dsm, output_png)
     
@@ -38,5 +40,5 @@ async def reconstruct(file: UploadFile = File(...)):
         "shift_datum_m": round(shift, 2),
         "elevation_min_m": round(float(np.min(metric_dsm)), 2),
         "elevation_max_m": round(float(np.max(metric_dsm)), 2),
-        "output_legend_png": output_png
+        "heatmap_url": "http://127.0.0.1:8000/outputs/latest_dsm.png"
     }

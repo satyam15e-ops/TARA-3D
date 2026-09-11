@@ -2,51 +2,86 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>TARA-3D | Real-Time 3D Mesh Viewer</title>
+  <title>TARA-3D | Advanced Elevation Analysis</title>
   <style>
     body { margin: 0; overflow: hidden; background: #0b0f19; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     #canvas-container { width: 100vw; height: 100vh; }
     #hud {
       position: absolute; top: 16px; left: 16px;
-      background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(10px);
-      padding: 16px 20px; border-radius: 10px; border: 1px solid #334155;
-      color: #fff; max-width: 320px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      background: rgba(15, 23, 42, 0.92); backdrop-filter: blur(12px);
+      padding: 18px 20px; border-radius: 10px; border: 1px solid #334155;
+      color: #fff; width: 300px; box-shadow: 0 8px 32px rgba(0,0,0,0.6);
       z-index: 10;
     }
-    h2 { font-size: 14px; margin: 0 0 8px 0; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.5px; }
-    p { font-size: 12px; margin: 4px 0; color: #94a3b8; }
-    .upload-btn {
-      display: block; margin-top: 12px; padding: 10px 14px;
-      background: #0284c7; color: white; border-radius: 6px; font-size: 12px;
-      cursor: pointer; font-weight: 600; text-align: center; border: none; width: 100%; box-sizing: border-box;
+    h2 { font-size: 13px; margin: 0 0 8px 0; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.8px; }
+    p { font-size: 11px; margin: 3px 0; color: #94a3b8; }
+    
+    .btn {
+      display: block; width: 100%; box-sizing: border-box;
+      padding: 8px 12px; margin-top: 8px; border-radius: 6px;
+      font-size: 11px; font-weight: 600; text-align: center;
+      cursor: pointer; border: none; transition: 0.15s ease;
     }
-    .upload-btn:hover { background: #0369a1; }
+    .btn-primary { background: #0284c7; color: #fff; }
+    .btn-primary:hover { background: #0369a1; }
+    .btn-secondary { background: #1e293b; color: #e2e8f0; border: 1px solid #475569; }
+    .btn-secondary:hover { background: #334155; }
+    .btn-success { background: #10b981; color: #fff; }
+    .btn-success:hover { background: #059669; }
+
     input[type="file"] { display: none; }
+    
+    .control-group { margin-top: 12px; border-top: 1px solid #334155; padding-top: 10px; }
+    label.slider-label { font-size: 11px; color: #cbd5e1; display: flex; justify-content: space-between; margin-bottom: 4px; }
+    input[type="range"] { width: 100%; accent-color: #38bdf8; cursor: pointer; }
+    
     #telemetry { margin-top: 12px; border-top: 1px solid #334155; padding-top: 8px; font-size: 11px; color: #cbd5e1; }
-    #telemetry div { margin: 3px 0; }
+    #telemetry div { margin: 2px 0; }
   </style>
 </head>
 <body>
   <div id="hud">
-    <h2>TARA-3D Surface Mesh</h2>
+    <h2>TARA-3D Elevation Engine</h2>
     <p>Status: <span id="status-text" style="color: #4ade80;">Ready</span></p>
-    <p>Orbit: Left Click + Drag | Zoom: Scroll</p>
+    <p>Controls: Left Drag (Orbit) | Scroll (Zoom)</p>
     
-    <label class="upload-btn">
+    <label class="btn btn-primary">
       Upload Satellite Image
       <input type="file" id="file-input" accept="image/*">
     </label>
 
+    <div class="control-group">
+      <p style="font-weight: 600; color: #cbd5e1; margin-bottom: 6px;">Texture Layer</p>
+      <div style="display: flex; gap: 6px;">
+        <button id="toggle-rgb" class="btn btn-secondary" style="margin-top:0;">Satellite RGB</button>
+        <button id="toggle-turbo" class="btn btn-secondary" style="margin-top:0;">Turbo DSM</button>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <label class="slider-label">
+        <span>Elevation Cutoff Slice</span>
+        <span id="slice-val">None</span>
+      </label>
+      <input type="range" id="slice-slider" min="0" max="100" value="0">
+    </div>
+
+    <div class="control-group">
+      <button id="export-gltf" class="btn btn-success">Export 3D Mesh (.GLB)</button>
+    </div>
+
     <div id="telemetry">
-      <div>Min Elevation: <span id="min-elev">--</span></div>
-      <div>Max Elevation: <span id="max-elev">--</span></div>
+      <div>Min Datum: <span id="min-elev">--</span></div>
+      <div>Max Altitude: <span id="max-elev">--</span></div>
       <div>Scale Factor: <span id="scale-val">--</span></div>
     </div>
   </div>
+
   <div id="canvas-container"></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
   <script src="js/viewer.js"></script>
 </body>
 </html>

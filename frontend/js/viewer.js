@@ -17,16 +17,22 @@ controls.dampingFactor = 0.05;
 const dirLight = new THREE.DirectionalLight(0xffffff, 1.4);
 dirLight.position.set(40, -50, 70);
 scene.add(dirLight);
-scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+scene.add(new THREE.AmbientLight(0xffffff, 0.8));
 
 const GRID_SIZE = 160;
 const geometry = new THREE.PlaneGeometry(50, 50, GRID_SIZE - 1, GRID_SIZE - 1);
+
+let rgbTexture = null;
+let turboTexture = null;
+let maxHeightRelief = 1.0;
+
 const material = new THREE.MeshStandardMaterial({
   color: 0xffffff,
   roughness: 0.6,
   metalness: 0.1,
-  flatShading: false
+  side: THREE.DoubleSide
 });
+
 const terrainMesh = new THREE.Mesh(geometry, material);
 scene.add(terrainMesh);
 
@@ -35,7 +41,7 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
   if (!file) return;
 
   const statusText = document.getElementById('status-text');
-  statusText.textContent = "Processing Surface...";
+  statusText.textContent = "Inferring & Calibrating...";
   statusText.style.color = "#facc15";
 
   const formData = new FormData();
@@ -46,54 +52,122 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
       method: 'POST',
       body: formData
     });
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
     const data = await res.json();
 
     document.getElementById('min-elev').textContent = data.elevation_min_m + " m";
     document.getElementById('max-elev').textContent = data.elevation_max_m + " m";
     document.getElementById('scale-val').textContent = data.scale_factor;
 
-    const textureLoader = new THREE.TextureLoader();
-    const objectURL = URL.createObjectURL(file);
-    
-    textureLoader.load(objectURL, (texture) => {
-      terrainMesh.material.map = texture;
-      terrainMesh.material.needsUpdate = true;
-
-      const canvas = document.createElement('canvas');
-      canvas.width = GRID_SIZE;
-      canvas.height = GRID_SIZE;
-      const ctx = canvas.getContext('2d');
+    const reader = new FileReader();
+    reader.onload = (event) => {
       const img = new Image();
-      img.src = objectURL;
-      
       img.onload = () => {
-        ctx.filter = 'blur(1.5px)'; // Smooth high-frequency noise
+        rgbTexture = new THREE.Texture(img);
+        rgbTexture.needsUpdate = true;
+        terrainMesh.material.map = rgbTexture;
+        terrainMesh.material.needsUpdate = true;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = GRID_SIZE;
+        canvas.height = GRID_SIZE;
+        const ctx = canvas.getContext('2d');
+        ctx.filter = 'blur(1.5px)';
         ctx.drawImage(img, 0, 0, GRID_SIZE, GRID_SIZE);
         const imgData = ctx.getImageData(0, 0, GRID_SIZE, GRID_SIZE).data;
         const pos = geometry.attributes.position;
 
-        // Controlled vertical displacement factor
-        const heightRelief = (data.elevation_max_m - data.elevation_min_m) * 0.05;
+        maxHeightRelief = (data.elevation_max_m - data.elevation_min_m) * 0.05;
 
         for (let i = 0; i < pos.count; i++) {
           const r = imgData[i * 4];
           const g = imgData[i * 4 + 1];
           const b = imgData[i * 4 + 2];
           const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0;
-          pos.setZ(i, lum * heightRelief);
+          pos.setZ(i, lum * maxHeightRelief);
         }
         pos.needsUpdate = true;
         geometry.computeVertexNormals();
+
+        const turboImg = new Image();
+        turboImg.crossOrigin = "anonymous";
+        turboImg.onload = () => {
+          turboTexture = new THREE.Texture(turboImg);
+          turboTexture.needsUpdate = true;
+        };
+        turboImg.src = data.heatmap_url + '?t=' + new Date().getTime();
+
         statusText.textContent = "Reconstruction Active (60 FPS)";
         statusText.style.color = "#4ade80";
       };
-    });
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
 
   } catch (err) {
     statusText.textContent = "Inference Failed";
     statusText.style.color = "#f87171";
     console.error(err);
   }
+});
+
+document.getElementById('toggle-rgb').addEventListener('click', () => {
+  if (rgbTexture) {
+    terrainMesh.material.map = rgbTexture;
+    terrainMesh.material.needsUpdate = true;
+  }
+});
+
+document.getElementById('toggle-turbo').addEventListener('click', () => {
+  if (turboTexture) {
+    terrainMesh.material.map = turboTexture;
+    terrainMesh.material.needsUpdate = true;
+  }
+});
+
+const slider = document.getElementById('slice-slider');
+const sliceLabel = document.getElementById('slice-val');
+
+slider.addEventListener('input', (e) => {
+  const percent = parseFloat(e.target.value);
+  if (percent === 0) {
+    sliceLabel.textContent = "None";
+    terrainMesh.material.vertexColors = false;
+    terrainMesh.material.needsUpdate = true;
+    return;
+  }
+  sliceLabel.textContent = `${percent}%`;
+  
+  const cutoffZ = (percent / 100.0) * maxHeightRelief;
+  const colors = [];
+  const pos = geometry.attributes.position;
+
+  for (let i = 0; i < pos.count; i++) {
+    const z = pos.getZ(i);
+    if (z >= cutoffZ) {
+      colors.push(1.0, 0.4, 0.1);
+    } else {
+      colors.push(0.3, 0.3, 0.35);
+    }
+  }
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  terrainMesh.material.vertexColors = true;
+  terrainMesh.material.needsUpdate = true;
+});
+
+document.getElementById('export-gltf').addEventListener('click', () => {
+  const exporter = new THREE.GLTFExporter();
+  exporter.parse(
+    terrainMesh,
+    (gltf) => {
+      const blob = new Blob([gltf], { type: 'application/octet-stream' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'TARA3D_Calibrated_Terrain.glb';
+      link.click();
+    },
+    { binary: true }
+  );
 });
 
 window.addEventListener('resize', () => {
