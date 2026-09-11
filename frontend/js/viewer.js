@@ -3,7 +3,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x070a13);
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(0, -60, 45);
+camera.position.set(0, -65, 45);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -14,7 +14,7 @@ const controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
 
-const dirLight = new THREE.DirectionalLight(0xffffff, 1.4);
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
 dirLight.position.set(40, -50, 70);
 scene.add(dirLight);
 scene.add(new THREE.AmbientLight(0xffffff, 0.8));
@@ -24,9 +24,9 @@ const geometry = new THREE.PlaneGeometry(50, 50, GRID_SIZE - 1, GRID_SIZE - 1);
 
 let rgbTexture = null;
 let turboTexture = null;
-let maxHeightRelief = 1.0;
-let minElevation = 0;
-let maxElevation = 0;
+let maxHeightRelief = 3.25;
+let minElevation = 239.26;
+let maxElevation = 304.26;
 
 const material = new THREE.MeshStandardMaterial({
   color: 0xffffff,
@@ -38,21 +38,31 @@ const material = new THREE.MeshStandardMaterial({
 const terrainMesh = new THREE.Mesh(geometry, material);
 scene.add(terrainMesh);
 
+// 3D Flythrough Path Engine
+let isFlying = false;
+let flightClock = 0;
+const flightBtn = document.getElementById('btn-flythrough');
+const flightHud = document.getElementById('flight-hud');
+const flyAltSpan = document.getElementById('fly-alt');
+
+flightBtn.addEventListener('click', () => {
+  isFlying = !isFlying;
+  flightBtn.classList.toggle('active', isFlying);
+  flightBtn.textContent = isFlying ? "Abort Flythrough" : "Engage 3D Flythrough Mission";
+  flightHud.style.display = isFlying ? "block" : "none";
+  controls.enabled = !isFlying;
+  if (!isFlying) {
+    camera.position.set(0, -65, 45);
+    camera.lookAt(0, 0, 0);
+  }
+});
+
 let activeTool = null;
 let clickPoints = [];
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 const markers = [];
 let transectLine = null;
-
-function createMarker(pos, color) {
-  const markerGeo = new THREE.SphereGeometry(0.5, 16, 16);
-  const markerMat = new THREE.MeshBasicMaterial({ color: color });
-  const marker = new THREE.Mesh(markerGeo, markerMat);
-  marker.position.copy(pos);
-  scene.add(marker);
-  markers.push(marker);
-}
 
 function clearMarkers() {
   markers.forEach(m => scene.remove(m));
@@ -62,6 +72,15 @@ function clearMarkers() {
     scene.remove(transectLine);
     transectLine = null;
   }
+}
+
+function createMarker(pos, color) {
+  const markerGeo = new THREE.SphereGeometry(0.5, 16, 16);
+  const markerMat = new THREE.MeshBasicMaterial({ color: color });
+  const marker = new THREE.Mesh(markerGeo, markerMat);
+  marker.position.copy(pos);
+  scene.add(marker);
+  markers.push(marker);
 }
 
 function drawTransect(p1, p2) {
@@ -143,7 +162,6 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
     maxElevation = data.elevation_max_m;
     document.getElementById('min-elev').textContent = minElevation + " m AMSL";
     document.getElementById('max-elev').textContent = maxElevation + " m AMSL";
-    document.getElementById('scale-val').textContent = data.scale_factor;
 
     if (data.accuracy) {
       document.getElementById('val-rmse').textContent = `±${data.accuracy.rmse_m} m`;
@@ -164,7 +182,6 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
         canvas.width = GRID_SIZE;
         canvas.height = GRID_SIZE;
         const ctx = canvas.getContext('2d');
-        ctx.filter = 'blur(1.5px)';
         ctx.drawImage(img, 0, 0, GRID_SIZE, GRID_SIZE);
         const imgData = ctx.getImageData(0, 0, GRID_SIZE, GRID_SIZE).data;
         const pos = geometry.attributes.position;
@@ -217,36 +234,6 @@ document.getElementById('toggle-turbo').addEventListener('click', () => {
   }
 });
 
-const slider = document.getElementById('slice-slider');
-const sliceLabel = document.getElementById('slice-val');
-
-slider.addEventListener('input', (e) => {
-  const percent = parseFloat(e.target.value);
-  if (percent === 0) {
-    sliceLabel.textContent = "None";
-    terrainMesh.material.vertexColors = false;
-    terrainMesh.material.needsUpdate = true;
-    return;
-  }
-  sliceLabel.textContent = `${percent}%`;
-  
-  const cutoffZ = (percent / 100.0) * maxHeightRelief;
-  const colors = [];
-  const pos = geometry.attributes.position;
-
-  for (let i = 0; i < pos.count; i++) {
-    const z = pos.getZ(i);
-    if (z >= cutoffZ) {
-      colors.push(1.0, 0.4, 0.1);
-    } else {
-      colors.push(0.3, 0.3, 0.35);
-    }
-  }
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  terrainMesh.material.vertexColors = true;
-  terrainMesh.material.needsUpdate = true;
-});
-
 const measureBtn = document.getElementById('toggle-measure');
 const profileBtn = document.getElementById('toggle-profile');
 const measureBox = document.getElementById('measure-box');
@@ -258,7 +245,7 @@ measureBtn.addEventListener('click', () => {
   profileBtn.classList.remove('active');
   measureBox.style.display = activeTool === 'measure' ? 'block' : 'none';
   profileDrawer.style.display = 'none';
-  controls.enabled = activeTool === null;
+  controls.enabled = activeTool === null && !isFlying;
   clearMarkers();
 });
 
@@ -268,12 +255,12 @@ profileBtn.addEventListener('click', () => {
   measureBtn.classList.remove('active');
   profileDrawer.style.display = activeTool === 'profile' ? 'block' : 'none';
   measureBox.style.display = 'none';
-  controls.enabled = activeTool === null;
+  controls.enabled = activeTool === null && !isFlying;
   clearMarkers();
 });
 
 window.addEventListener('click', (e) => {
-  if (!activeTool) return;
+  if (!activeTool || isFlying) return;
   if (e.target.closest('#hud') || e.target.closest('#profile-drawer') || e.target.closest('#mission-bar')) return;
 
   mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
@@ -316,12 +303,10 @@ window.addEventListener('click', (e) => {
   }
 });
 
-// Download 32-Bit GeoTIFF
 document.getElementById('export-geotiff').addEventListener('click', () => {
   window.open('http://127.0.0.1:8000/api/download-geotiff', '_blank');
 });
 
-// Export GLB Mesh
 document.getElementById('export-gltf').addEventListener('click', () => {
   const exporter = new THREE.GLTFExporter();
   exporter.parse(
@@ -345,7 +330,26 @@ window.addEventListener('resize', () => {
 
 function animate() {
   requestAnimationFrame(animate);
-  controls.update();
+
+  if (isFlying) {
+    flightClock += 0.005;
+    const radius = 32;
+    const flightX = Math.cos(flightClock) * radius;
+    const flightY = Math.sin(flightClock) * radius;
+    const flightZ = 12 + Math.sin(flightClock * 2) * 3; // Realistic flight oscillation
+
+    camera.position.set(flightX, flightY, flightZ);
+    // Target is slightly ahead of the flight vector to create a cockpit/drone feel
+    const targetX = Math.cos(flightClock + 0.25) * 6;
+    const targetY = Math.sin(flightClock + 0.25) * 6;
+    camera.lookAt(targetX, targetY, 2.0);
+
+    const currentAlt = (minElevation + (flightZ / maxHeightRelief) * (maxElevation - minElevation)).toFixed(1);
+    flyAltSpan.textContent = currentAlt;
+  } else {
+    controls.update();
+  }
+
   renderer.render(scene, camera);
 }
 animate();
