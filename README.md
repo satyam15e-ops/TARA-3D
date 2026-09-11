@@ -25,17 +25,17 @@ The pipeline combines zero-shot foundation depth inference (**Depth Anything v2*
            │
            ▼
 ┌───────────────────────────────────────┐
-│ FastAPI Inference Pipeline                        │
-│  ├── Depth Anything v2 (Relative)                │
-│  ├── Huber-RANSAC (Metric Scaling)               │
-│  └── Turbo Colourmap Legend Generator            │
+│ FastAPI Inference Pipeline            │
+│  ├── Depth Anything v2 (Relative)     │
+│  ├── Huber-RANSAC (Metric Scaling)    │
+│  └── Turbo Colourmap Legend Generato  │
 └──────────────────┬────────────────────┘
                    │  JSON Telemetry + DSM Legend
                    ▼
 ┌───────────────────────────────────────┐
-│ Three.js Interactive Viewer (Client)              │
-│  ├── Dynamic Vertex Displacement                 │
-│  ├── Real-Time Altitude Slicing                  │
-│  ├── RGB / DSM Texture Blending                  │
-│  └── Binary GLTF/GLB Exporter                    │
+│ Three.js Interactive Viewer (Client)  │
+│  ├── Dynamic Vertex Displacement      │
+│  ├── Real-Time Altitude Slicing       │
+│  ├── RGB / DSM Texture Blending       │
+│  └── Binary GLTF/GLB Exporter         │
 └───────────────────────────────────────┘
