@@ -1,0 +1,31 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>TARA-3D | Real-Time 3D Mesh Viewer</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #0b0f19; font-family: sans-serif; }
+    #canvas-container { width: 100vw; height: 100vh; }
+    #hud {
+      position: absolute; top: 16px; left: 16px;
+      background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px);
+      padding: 16px 20px; border-radius: 8px; border: 1px solid #334155;
+      color: #fff; max-width: 320px;
+    }
+    h2 { font-size: 14px; margin: 0 0 6px 0; color: #38bdf8; text-transform: uppercase; }
+    p { font-size: 11px; margin: 4px 0; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <h2>TARA-3D Surface Mesh</h2>
+    <p>Status: WebGL Active (60 FPS)</p>
+    <p>Datum: ISRO CartoDEM / SRTM Anchored</p>
+    <p>Orbit: Left Click + Drag | Zoom: Scroll</p>
+  </div>
+  <div id="canvas-container"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="js/viewer.js"></script>
+</body>
+</html>
