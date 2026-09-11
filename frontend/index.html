@@ -28,6 +28,8 @@
     .btn-secondary:hover { background: #334155; }
     .btn-measure { background: #8b5cf6; color: #fff; }
     .btn-measure.active { background: #ec4899; }
+    .btn-profile { background: #0ea5e9; color: #fff; }
+    .btn-profile.active { background: #f59e0b; }
     .btn-success { background: #10b981; color: #fff; }
     .btn-success:hover { background: #059669; }
 
@@ -50,6 +52,18 @@
     #telemetry div, #accuracy-panel div, #geo-panel div { margin: 2px 0; }
     .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; background: #065f46; color: #6ee7b7; }
     #measure-box { margin-top: 8px; padding: 8px; background: rgba(30, 41, 59, 0.7); border-radius: 6px; font-size: 11px; border: 1px dashed #64748b; }
+
+    /* Cross-Section Drawer */
+    #profile-drawer {
+      position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+      width: 580px; height: 160px;
+      background: rgba(15, 23, 42, 0.94); backdrop-filter: blur(12px);
+      border: 1px solid #334155; border-radius: 10px;
+      padding: 12px 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+      display: none; z-index: 10;
+    }
+    #profile-drawer h3 { font-size: 11px; margin: 0 0 6px 0; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.8px; display: flex; justify-content: space-between; }
+    #profile-canvas { width: 100%; height: 120px; background: #0b0f19; border-radius: 6px; border: 1px solid #1e293b; }
   </style>
 </head>
 <body>
@@ -93,7 +107,10 @@
     </div>
 
     <div class="control-group">
-      <button id="toggle-measure" class="btn btn-measure">Ruler: 2-Point Height Tool</button>
+      <div style="display: flex; gap: 6px;">
+        <button id="toggle-measure" class="btn btn-measure" style="margin-top:0; width: 50%;">Ruler (ΔZ)</button>
+        <button id="toggle-profile" class="btn btn-profile" style="margin-top:0; width: 50%;">2D Profile</button>
+      </div>
       <div id="measure-box" style="display: none;">
         <div>Point A: <span id="pt-a">Click surface</span></div>
         <div>Point B: <span id="pt-b">Click surface</span></div>
@@ -124,6 +141,15 @@
       <div>Mean Abs Error (MAE): <span id="val-mae" style="color: #4ade80;">--</span></div>
       <div>LE90 Confidence: <span id="val-le90" class="badge">--</span></div>
     </div>
+  </div>
+
+  <!-- 2D Profile Drawer -->
+  <div id="profile-drawer">
+    <h3>
+      <span>Elevation Cross-Section Transect</span>
+      <span id="profile-status" style="color: #f59e0b; font-size: 10px;">Select 2 Points On Surface</span>
+    </h3>
+    <canvas id="profile-canvas" width="548" height="110"></canvas>
   </div>
 
   <div id="canvas-container"></div>

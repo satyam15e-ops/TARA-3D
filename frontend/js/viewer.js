@@ -38,11 +38,13 @@ const material = new THREE.MeshStandardMaterial({
 const terrainMesh = new THREE.Mesh(geometry, material);
 scene.add(terrainMesh);
 
-let measureMode = false;
+// Tool state
+let activeTool = null; // 'measure' | 'profile' | null
 let clickPoints = [];
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 const markers = [];
+let transectLine = null;
 
 function createMarker(pos, color) {
   const markerGeo = new THREE.SphereGeometry(0.5, 16, 16);
@@ -57,8 +59,72 @@ function clearMarkers() {
   markers.forEach(m => scene.remove(m));
   markers.length = 0;
   clickPoints = [];
+  if (transectLine) {
+    scene.remove(transectLine);
+    transectLine = null;
+  }
 }
 
+function drawTransect(p1, p2) {
+  if (transectLine) scene.remove(transectLine);
+  const lineGeo = new THREE.BufferGeometry().setFromPoints([p1, p2]);
+  const lineMat = new THREE.LineBasicMaterial({ color: 0xf59e0b, linewidth: 2 });
+  transectLine = new THREE.Line(lineGeo, lineMat);
+  scene.add(transectLine);
+}
+
+function renderProfileGraph(p1, p2) {
+  const canvas = document.getElementById('profile-canvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const samples = 120;
+  const profileData = [];
+  const pos = geometry.attributes.position;
+
+  for (let i = 0; i <= samples; i++) {
+    const t = i / samples;
+    const x = p1.x + (p2.x - p1.x) * t;
+    const y = p1.y + (p2.y - p1.y) * t;
+
+    // Convert world (-25 to 25) to grid index (0 to GRID_SIZE-1)
+    const gx = Math.min(GRID_SIZE - 1, Math.max(0, Math.floor(((x + 25) / 50) * (GRID_SIZE - 1))));
+    const gy = Math.min(GRID_SIZE - 1, Math.max(0, Math.floor(((25 - y) / 50) * (GRID_SIZE - 1))));
+    const idx = gy * GRID_SIZE + gx;
+    const z = pos.getZ(idx) || 0;
+
+    const ratio = Math.max(0, Math.min(1, z / maxHeightRelief));
+    const amsl = minElevation + ratio * (maxElevation - minElevation);
+    profileData.push(amsl);
+  }
+
+  // Draw 2D Profile Curve
+  const pMin = Math.min(...profileData);
+  const pMax = Math.max(...profileData) + 0.1;
+  const w = canvas.width;
+  const h = canvas.height;
+
+  ctx.beginPath();
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 2;
+
+  profileData.forEach((val, i) => {
+    const px = (i / samples) * (w - 60) + 40;
+    const py = h - 20 - ((val - pMin) / (pMax - pMin)) * (h - 40);
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  });
+  ctx.stroke();
+
+  // Draw Axes and Labels
+  ctx.fillStyle = '#64748b';
+  ctx.font = '9px monospace';
+  ctx.fillText(`${pMax.toFixed(1)}m`, 4, 18);
+  ctx.fillText(`${pMin.toFixed(1)}m`, 4, h - 16);
+  ctx.fillText(`Transect Distance (A -> B)`, w / 2 - 50, h - 4);
+}
+
+// 1. INGESTION & RECONSTRUCTION
 document.getElementById('file-input').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -153,6 +219,7 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
   }
 });
 
+// 2. TEXTURE TOGGLE
 document.getElementById('toggle-rgb').addEventListener('click', () => {
   if (rgbTexture) {
     terrainMesh.material.map = rgbTexture;
@@ -167,6 +234,7 @@ document.getElementById('toggle-turbo').addEventListener('click', () => {
   }
 });
 
+// 3. ELEVATION SLICER
 const slider = document.getElementById('slice-slider');
 const sliceLabel = document.getElementById('slice-val');
 
@@ -197,25 +265,35 @@ slider.addEventListener('input', (e) => {
   terrainMesh.material.needsUpdate = true;
 });
 
+// 4. TOOLS (Ruler & 2D Profile)
 const measureBtn = document.getElementById('toggle-measure');
+const profileBtn = document.getElementById('toggle-profile');
 const measureBox = document.getElementById('measure-box');
+const profileDrawer = document.getElementById('profile-drawer');
 
 measureBtn.addEventListener('click', () => {
-  measureMode = !measureMode;
-  measureBtn.classList.toggle('active', measureMode);
-  measureBox.style.display = measureMode ? 'block' : 'none';
-  controls.enabled = !measureMode;
-  if (!measureMode) {
-    clearMarkers();
-    document.getElementById('pt-a').textContent = "Click surface";
-    document.getElementById('pt-b').textContent = "Click surface";
-    document.getElementById('delta-z').textContent = "--";
-  }
+  activeTool = (activeTool === 'measure') ? null : 'measure';
+  measureBtn.classList.toggle('active', activeTool === 'measure');
+  profileBtn.classList.remove('active');
+  measureBox.style.display = activeTool === 'measure' ? 'block' : 'none';
+  profileDrawer.style.display = 'none';
+  controls.enabled = activeTool === null;
+  clearMarkers();
+});
+
+profileBtn.addEventListener('click', () => {
+  activeTool = (activeTool === 'profile') ? null : 'profile';
+  profileBtn.classList.toggle('active', activeTool === 'profile');
+  measureBtn.classList.remove('active');
+  profileDrawer.style.display = activeTool === 'profile' ? 'block' : 'none';
+  measureBox.style.display = 'none';
+  controls.enabled = activeTool === null;
+  clearMarkers();
 });
 
 window.addEventListener('click', (e) => {
-  if (!measureMode) return;
-  if (e.target.closest('#hud')) return;
+  if (!activeTool) return;
+  if (e.target.closest('#hud') || e.target.closest('#profile-drawer')) return;
 
   mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
   mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
@@ -225,29 +303,39 @@ window.addEventListener('click', (e) => {
 
   if (intersects.length > 0) {
     const pt = intersects[0].point;
-    if (clickPoints.length >= 2) {
-      clearMarkers();
-    }
+    if (clickPoints.length >= 2) clearMarkers();
+    
     clickPoints.push(pt);
-    createMarker(pt, clickPoints.length === 1 ? 0x38bdf8 : 0xec4899);
+    createMarker(pt, clickPoints.length === 1 ? 0x38bdf8 : 0xf59e0b);
 
     const calcElev = (z) => {
       const ratio = Math.max(0, Math.min(1, z / maxHeightRelief));
       return (minElevation + ratio * (maxElevation - minElevation)).toFixed(1);
     };
 
-    if (clickPoints.length === 1) {
-      document.getElementById('pt-a').textContent = `${calcElev(pt.z)} m`;
-      document.getElementById('pt-b').textContent = "Click surface";
-      document.getElementById('delta-z').textContent = "--";
-    } else if (clickPoints.length === 2) {
-      document.getElementById('pt-b').textContent = `${calcElev(pt.z)} m`;
-      const diff = Math.abs(parseFloat(document.getElementById('pt-b').textContent) - parseFloat(document.getElementById('pt-a').textContent)).toFixed(1);
-      document.getElementById('delta-z').textContent = `${diff} m`;
+    if (activeTool === 'measure') {
+      if (clickPoints.length === 1) {
+        document.getElementById('pt-a').textContent = `${calcElev(pt.z)} m`;
+        document.getElementById('pt-b').textContent = "Click surface";
+        document.getElementById('delta-z').textContent = "--";
+      } else if (clickPoints.length === 2) {
+        document.getElementById('pt-b').textContent = `${calcElev(pt.z)} m`;
+        const diff = Math.abs(parseFloat(document.getElementById('pt-b').textContent) - parseFloat(document.getElementById('pt-a').textContent)).toFixed(1);
+        document.getElementById('delta-z').textContent = `${diff} m`;
+      }
+    } else if (activeTool === 'profile') {
+      if (clickPoints.length === 1) {
+        document.getElementById('profile-status').textContent = "Click Second Transect Point";
+      } else if (clickPoints.length === 2) {
+        drawTransect(clickPoints[0], clickPoints[1]);
+        renderProfileGraph(clickPoints[0], clickPoints[1]);
+        document.getElementById('profile-status').textContent = "Profile Calculated";
+      }
     }
   }
 });
 
+// 5. EXPORT GLB
 document.getElementById('export-gltf').addEventListener('click', () => {
   const exporter = new THREE.GLTFExporter();
   exporter.parse(
