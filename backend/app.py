@@ -26,7 +26,6 @@ app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
 
 engine = DepthEngine()
 geo_calibrator = GeospatialCalibrationEngine()
-
 latest_geotiff_path = "outputs/TARA3D_Metric_Elevation.tif"
 
 @app.post("/api/reconstruct")
@@ -43,30 +42,31 @@ async def reconstruct(
     contents = await file.read()
     image = Image.open(io.BytesIO(contents)).convert("RGB")
     
-    # 1. Foundation Monocular Inference (Relative Disparity)
+    # 1. Foundation Relative Disparity
     rel_depth = engine.infer(image)
     
-    # 2. SRTM 30m Reference Anchor Matrix
+    # 2. SRTM 30m Reference Anchor
     if srtm_file is not None:
         srtm_bytes = await srtm_file.read()
         with rasterio.open(io.BytesIO(srtm_bytes)) as dem_src:
             srtm_patch = dem_src.read(1)
     else:
-        # Construct reference surface gradient based on regional datum priors
         h, w = rel_depth.shape
         x = np.linspace(0, 1, w)
         y = np.linspace(0, 1, h)
         xx, yy = np.meshgrid(x, y)
-        srtm_patch = base_datum_m + (xx * 8.0) - (yy * 4.0) + (np.sin(xx * 6) * 3.0)
+        srtm_patch = base_datum_m + (xx * 4.0) - (yy * 2.0)
 
-    # 3. Dual-Band Calibration & Error Metrics
-    metric_dsm, scale_s, shift_t, accuracy = geo_calibrator.align_to_srtm(rel_depth, srtm_patch)
+    # 3. Dual-Band Calibration with Preserved Building Relief
+    metric_dsm, scale_s, shift_t, accuracy = geo_calibrator.align_to_srtm(
+        rel_depth, srtm_patch, target_relief_m=max_relief_m
+    )
 
     # 4. Export 32-Bit Float GeoTIFF
     bounds = (min_lon, min_lat, max_lon, max_lat)
     geo_calibrator.export_geotiff(metric_dsm, latest_geotiff_path, bounds=bounds, crs_code="EPSG:4326")
 
-    # 5. Export Calibrated Turbo Legend Heatmap
+    # 5. Export Heatmap
     output_png = "outputs/latest_dsm.png"
     export_metric_dsm_with_legend(metric_dsm, output_png)
 
