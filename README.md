@@ -1,27 +1,41 @@
-# DepthWizard (TARA-3D): Monocular Satellite Terrain Reconstruction & 3D Flythrough
+﻿
+# TARA-3D: Monocular Satellite-to-Metric 3D Elevation Engine
 
-**Problem Statement ID:** 26175  
-**Project:** DepthWizard (TARA-3D)  
-**Team:** ResQMesh | **Hackathon:** Smart India Hackathon / Tekathon 5.0  
+TARA-3D is an end-to-end computer vision and photogrammetry platform that reconstructs calibrated 3D terrain and structural digital surface models (DSM) from single 2D aerial/satellite optical images.
 
----
-
-## 📌 Overview
-TARA-3D reconstructs high-resolution 3D terrain meshes (Digital Surface Models) from single-view 2D optical satellite imagery using foundation deep learning and deterministic solar physics.
-
-- **Depth Engine:** Fine-tuned Vision Transformer (*Depth Anything v2*) for zero-shot relative disparity.
-- **Metric Calibration:** Huber-RANSAC solar shadow ray-marching ($H = L \cdot \tan\theta$) eliminating urban occlusion outliers.
-- **Visualization:** Real-time 60 FPS Three.js WebGL flythrough viewer with GPU slope analysis.
-- **Accuracy Target:** Vertical LE90 $\le 2.14\text{m}$ anchored to ISRO CartoDEM bare-earth datum.
+The pipeline combines zero-shot foundation depth inference (**Depth Anything v2**) with robust datum-anchoring (**Huber-RANSAC Calibration**) to produce metric-scale elevations, paired with an interactive 60 FPS **WebGL (Three.js)** real-time viewer.
 
 ---
 
-## 🚀 Key Features
-- **Rapid Disaster Triage:** Generates actionable 3D surface models in under 30 seconds.
-- **Turnkey GIS Export:** Cloud-Optimized GeoTIFF (COG), LAS Point Clouds, and OGC 3D-Tiles for ISRO Bhuvan/VEDAS integration.
-- **Edge & Cloud Ready:** Lightweight containerized FastAPI backend with offline caching.
+## Key Features
+
+- **Monocular Elevation Reconstruction**: Converts uncalibrated monocular satellite and aerial RGB imagery into metric Digital Surface Models without requiring stereo baseline pairs.
+- **Robust Outlier-Resistant Calibration**: Employs Huber-RANSAC regression to align relative depth maps to real-world vertical datums (AMSL).
+- **Interactive WebGL Digital Twin**: Real-time 3D displacement mapping rendered directly in the browser with Orbit controls.
+- **Real-Time Elevation Slicing**: Dynamic threshold shader allowing users to isolate altitude levels, structural footprints, and terrain relief.
+- **Multimodal Visual Inspection**: Instant swapping between natural satellite RGB texturing and scientific Turbo colourmap DSM legends.
+- **GIS & CAD Interoperability**: One-click binary `.GLB` 3D mesh export for direct analysis in Blender, Caesium, and GIS tools.
 
 ---
 
-## 🛠 Tech Stack
-`Python` • `PyTorch` • `Three.js` • `FastAPI` • `GDAL` • `Docker`
+## System Architecture
+
+```text
+[ Raw 2D Satellite Image ]
+           │
+           ▼
+┌───────────────────────────────────────┐
+│ FastAPI Inference Pipeline                        │
+│  ├── Depth Anything v2 (Relative)                │
+│  ├── Huber-RANSAC (Metric Scaling)               │
+│  └── Turbo Colourmap Legend Generator            │
+└──────────────────┬────────────────────┘
+                   │  JSON Telemetry + DSM Legend
+                   ▼
+┌───────────────────────────────────────┐
+│ Three.js Interactive Viewer (Client)              │
+│  ├── Dynamic Vertex Displacement                 │
+│  ├── Real-Time Altitude Slicing                  │
+│  ├── RGB / DSM Texture Blending                  │
+│  └── Binary GLTF/GLB Exporter                    │
+└───────────────────────────────────────┘
