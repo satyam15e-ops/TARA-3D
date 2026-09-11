@@ -1,4 +1,4 @@
-# TARA-3D: Monocular Satellite Terrain Reconstruction & 3D Flythrough
+# DepthWizard (TARA-3D): Monocular Satellite Terrain Reconstruction & 3D Flythrough
 
 **Problem Statement ID:** 26175  
 **Project:** DepthWizard (TARA-3D)  
