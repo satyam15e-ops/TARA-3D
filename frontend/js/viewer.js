@@ -1,6 +1,6 @@
 ﻿const container = document.getElementById('canvas-container');
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0b0f19);
+scene.background = new THREE.Color(0x070a13);
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
 camera.position.set(0, -60, 45);
@@ -38,8 +38,7 @@ const material = new THREE.MeshStandardMaterial({
 const terrainMesh = new THREE.Mesh(geometry, material);
 scene.add(terrainMesh);
 
-// Tool state
-let activeTool = null; // 'measure' | 'profile' | null
+let activeTool = null;
 let clickPoints = [];
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
@@ -87,7 +86,6 @@ function renderProfileGraph(p1, p2) {
     const x = p1.x + (p2.x - p1.x) * t;
     const y = p1.y + (p2.y - p1.y) * t;
 
-    // Convert world (-25 to 25) to grid index (0 to GRID_SIZE-1)
     const gx = Math.min(GRID_SIZE - 1, Math.max(0, Math.floor(((x + 25) / 50) * (GRID_SIZE - 1))));
     const gy = Math.min(GRID_SIZE - 1, Math.max(0, Math.floor(((25 - y) / 50) * (GRID_SIZE - 1))));
     const idx = gy * GRID_SIZE + gx;
@@ -98,7 +96,6 @@ function renderProfileGraph(p1, p2) {
     profileData.push(amsl);
   }
 
-  // Draw 2D Profile Curve
   const pMin = Math.min(...profileData);
   const pMax = Math.max(...profileData) + 0.1;
   const w = canvas.width;
@@ -116,7 +113,6 @@ function renderProfileGraph(p1, p2) {
   });
   ctx.stroke();
 
-  // Draw Axes and Labels
   ctx.fillStyle = '#64748b';
   ctx.font = '9px monospace';
   ctx.fillText(`${pMax.toFixed(1)}m`, 4, 18);
@@ -124,22 +120,16 @@ function renderProfileGraph(p1, p2) {
   ctx.fillText(`Transect Distance (A -> B)`, w / 2 - 50, h - 4);
 }
 
-// 1. INGESTION & RECONSTRUCTION
 document.getElementById('file-input').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
 
   const statusText = document.getElementById('status-text');
-  statusText.textContent = "Extracting GeoTIFF & Inferring...";
+  statusText.textContent = "Anchoring to SRTM 30m Baseline...";
   statusText.style.color = "#facc15";
-
-  const baseDatum = document.getElementById('base-datum-input').value || 240;
-  const reliefScale = document.getElementById('relief-scale-input').value || 65;
 
   const formData = new FormData();
   formData.append('file', file);
-  formData.append('base_datum_m', baseDatum);
-  formData.append('max_relief_m', reliefScale);
 
   try {
     const res = await fetch('http://127.0.0.1:8000/api/reconstruct', {
@@ -151,15 +141,9 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
 
     minElevation = data.elevation_min_m;
     maxElevation = data.elevation_max_m;
-    document.getElementById('min-elev').textContent = minElevation + " m";
-    document.getElementById('max-elev').textContent = maxElevation + " m";
+    document.getElementById('min-elev').textContent = minElevation + " m AMSL";
+    document.getElementById('max-elev').textContent = maxElevation + " m AMSL";
     document.getElementById('scale-val').textContent = data.scale_factor;
-
-    if (data.geospatial) {
-      document.getElementById('geo-format').textContent = data.geospatial.is_geotiff ? "GeoTIFF (Tagged)" : "Standard Optical";
-      document.getElementById('geo-crs').textContent = data.geospatial.crs;
-      document.getElementById('geo-gsd').textContent = `${data.geospatial.gsd_m} m/px`;
-    }
 
     if (data.accuracy) {
       document.getElementById('val-rmse').textContent = `±${data.accuracy.rmse_m} m`;
@@ -206,20 +190,19 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
         turboImg.src = data.heatmap_url + '?t=' + new Date().getTime();
 
         statusText.textContent = "Reconstruction Active (60 FPS)";
-        statusText.style.color = "#4ade80";
+        statusText.style.color = "#34d399";
       };
       img.src = event.target.result;
     };
     reader.readAsDataURL(file);
 
   } catch (err) {
-    statusText.textContent = "Inference Failed";
+    statusText.textContent = "Processing Failed";
     statusText.style.color = "#f87171";
     console.error(err);
   }
 });
 
-// 2. TEXTURE TOGGLE
 document.getElementById('toggle-rgb').addEventListener('click', () => {
   if (rgbTexture) {
     terrainMesh.material.map = rgbTexture;
@@ -234,7 +217,6 @@ document.getElementById('toggle-turbo').addEventListener('click', () => {
   }
 });
 
-// 3. ELEVATION SLICER
 const slider = document.getElementById('slice-slider');
 const sliceLabel = document.getElementById('slice-val');
 
@@ -265,7 +247,6 @@ slider.addEventListener('input', (e) => {
   terrainMesh.material.needsUpdate = true;
 });
 
-// 4. TOOLS (Ruler & 2D Profile)
 const measureBtn = document.getElementById('toggle-measure');
 const profileBtn = document.getElementById('toggle-profile');
 const measureBox = document.getElementById('measure-box');
@@ -293,7 +274,7 @@ profileBtn.addEventListener('click', () => {
 
 window.addEventListener('click', (e) => {
   if (!activeTool) return;
-  if (e.target.closest('#hud') || e.target.closest('#profile-drawer')) return;
+  if (e.target.closest('#hud') || e.target.closest('#profile-drawer') || e.target.closest('#mission-bar')) return;
 
   mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
   mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
@@ -315,11 +296,11 @@ window.addEventListener('click', (e) => {
 
     if (activeTool === 'measure') {
       if (clickPoints.length === 1) {
-        document.getElementById('pt-a').textContent = `${calcElev(pt.z)} m`;
+        document.getElementById('pt-a').textContent = `${calcElev(pt.z)} m AMSL`;
         document.getElementById('pt-b').textContent = "Click surface";
         document.getElementById('delta-z').textContent = "--";
       } else if (clickPoints.length === 2) {
-        document.getElementById('pt-b').textContent = `${calcElev(pt.z)} m`;
+        document.getElementById('pt-b').textContent = `${calcElev(pt.z)} m AMSL`;
         const diff = Math.abs(parseFloat(document.getElementById('pt-b').textContent) - parseFloat(document.getElementById('pt-a').textContent)).toFixed(1);
         document.getElementById('delta-z').textContent = `${diff} m`;
       }
@@ -329,13 +310,18 @@ window.addEventListener('click', (e) => {
       } else if (clickPoints.length === 2) {
         drawTransect(clickPoints[0], clickPoints[1]);
         renderProfileGraph(clickPoints[0], clickPoints[1]);
-        document.getElementById('profile-status').textContent = "Profile Calculated";
+        document.getElementById('profile-status').textContent = "Transect Profile Calculated";
       }
     }
   }
 });
 
-// 5. EXPORT GLB
+// Download 32-Bit GeoTIFF
+document.getElementById('export-geotiff').addEventListener('click', () => {
+  window.open('http://127.0.0.1:8000/api/download-geotiff', '_blank');
+});
+
+// Export GLB Mesh
 document.getElementById('export-gltf').addEventListener('click', () => {
   const exporter = new THREE.GLTFExporter();
   exporter.parse(

@@ -2,105 +2,108 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>TARA-3D | Advanced Elevation Analysis</title>
+  <title>TARA-3D | ISRO SAC Photogrammetric DSM Pipeline</title>
   <style>
-    body { margin: 0; overflow: hidden; background: #0b0f19; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { margin: 0; overflow: hidden; background: #070a13; font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif; }
     #canvas-container { width: 100vw; height: 100vh; }
-    #hud {
-      position: absolute; top: 16px; left: 16px;
-      background: rgba(15, 23, 42, 0.94); backdrop-filter: blur(12px);
-      padding: 16px 20px; border-radius: 10px; border: 1px solid #334155;
-      color: #fff; width: 320px; box-shadow: 0 8px 32px rgba(0,0,0,0.6);
-      z-index: 10; max-height: 94vh; overflow-y: auto;
+    
+    /* Top Mission Header */
+    #mission-bar {
+      position: absolute; top: 0; left: 0; right: 0; height: 38px;
+      background: rgba(10, 15, 29, 0.95); backdrop-filter: blur(10px);
+      border-bottom: 1px solid #1e293b; display: flex; align-items: center;
+      justify-content: space-between; padding: 0 20px; z-index: 20; color: #94a3b8; font-size: 11px;
     }
-    h2 { font-size: 13px; margin: 0 0 6px 0; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.8px; }
-    p { font-size: 11px; margin: 2px 0; color: #94a3b8; }
+    #mission-bar strong { color: #38bdf8; font-size: 12px; letter-spacing: 0.5px; }
+
+    /* Left Analytical HUD */
+    #hud {
+      position: absolute; top: 52px; left: 16px;
+      background: rgba(11, 17, 32, 0.94); backdrop-filter: blur(14px);
+      padding: 16px 18px; border-radius: 8px; border: 1px solid #1e293b;
+      color: #fff; width: 330px; box-shadow: 0 12px 40px rgba(0,0,0,0.7);
+      z-index: 10; max-height: 88vh; overflow-y: auto;
+    }
+    h2 { font-size: 12px; margin: 0 0 6px 0; color: #38bdf8; text-transform: uppercase; letter-spacing: 1px; }
     
     .btn {
       display: block; width: 100%; box-sizing: border-box;
-      padding: 8px 12px; margin-top: 8px; border-radius: 6px;
+      padding: 8px 10px; margin-top: 6px; border-radius: 4px;
       font-size: 11px; font-weight: 600; text-align: center;
       cursor: pointer; border: none; transition: 0.15s ease;
     }
     .btn-primary { background: #0284c7; color: #fff; }
     .btn-primary:hover { background: #0369a1; }
-    .btn-secondary { background: #1e293b; color: #e2e8f0; border: 1px solid #475569; }
+    .btn-secondary { background: #1e293b; color: #cbd5e1; border: 1px solid #334155; }
     .btn-secondary:hover { background: #334155; }
-    .btn-measure { background: #8b5cf6; color: #fff; }
-    .btn-measure.active { background: #ec4899; }
-    .btn-profile { background: #0ea5e9; color: #fff; }
-    .btn-profile.active { background: #f59e0b; }
-    .btn-success { background: #10b981; color: #fff; }
-    .btn-success:hover { background: #059669; }
+    .btn-measure { background: #7c3aed; color: #fff; }
+    .btn-measure.active { background: #db2777; }
+    .btn-profile { background: #0284c7; color: #fff; }
+    .btn-profile.active { background: #d97706; }
+    .btn-tiff { background: #059669; color: #fff; }
+    .btn-tiff:hover { background: #047857; }
+    .btn-glb { background: #334155; color: #e2e8f0; border: 1px solid #475569; }
 
     input[type="file"] { display: none; }
     
-    .control-group { margin-top: 10px; border-top: 1px solid #334155; padding-top: 8px; }
-    label.slider-label { font-size: 11px; color: #cbd5e1; display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .control-group { margin-top: 10px; border-top: 1px solid #1e293b; padding-top: 8px; }
+    label.slider-label { font-size: 11px; color: #94a3b8; display: flex; justify-content: space-between; margin-bottom: 4px; }
     input[type="range"] { width: 100%; accent-color: #38bdf8; cursor: pointer; }
     
-    .datum-inputs { display: flex; gap: 8px; margin-top: 6px; }
+    .datum-inputs { display: flex; gap: 8px; margin-top: 4px; }
     .datum-inputs div { width: 50%; }
-    .datum-inputs label { font-size: 10px; color: #94a3b8; display: block; margin-bottom: 2px; }
+    .datum-inputs label { font-size: 10px; color: #64748b; display: block; margin-bottom: 2px; }
     .datum-inputs input {
-      width: 100%; box-sizing: border-box; padding: 6px;
-      background: #1e293b; color: #fff; border: 1px solid #475569;
+      width: 100%; box-sizing: border-box; padding: 5px;
+      background: #0f172a; color: #fff; border: 1px solid #334155;
       border-radius: 4px; font-size: 11px;
     }
 
-    #telemetry, #accuracy-panel, #geo-panel { margin-top: 10px; border-top: 1px solid #334155; padding-top: 8px; font-size: 11px; color: #cbd5e1; }
+    #telemetry, #accuracy-panel, #geo-panel { margin-top: 8px; border-top: 1px solid #1e293b; padding-top: 8px; font-size: 11px; color: #cbd5e1; }
     #telemetry div, #accuracy-panel div, #geo-panel div { margin: 2px 0; }
-    .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; background: #065f46; color: #6ee7b7; }
-    #measure-box { margin-top: 8px; padding: 8px; background: rgba(30, 41, 59, 0.7); border-radius: 6px; font-size: 11px; border: 1px dashed #64748b; }
+    .badge-pass { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; background: #064e3b; color: #34d399; }
+    #measure-box { margin-top: 8px; padding: 8px; background: rgba(15, 23, 42, 0.8); border-radius: 4px; font-size: 11px; border: 1px dashed #475569; }
 
-    /* Cross-Section Drawer */
+    /* Bottom 2D Elevation Transect Drawer */
     #profile-drawer {
       position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
-      width: 580px; height: 160px;
-      background: rgba(15, 23, 42, 0.94); backdrop-filter: blur(12px);
-      border: 1px solid #334155; border-radius: 10px;
-      padding: 12px 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+      width: 600px; height: 165px;
+      background: rgba(11, 17, 32, 0.95); backdrop-filter: blur(14px);
+      border: 1px solid #1e293b; border-radius: 8px;
+      padding: 10px 14px; box-shadow: 0 12px 40px rgba(0,0,0,0.8);
       display: none; z-index: 10;
     }
     #profile-drawer h3 { font-size: 11px; margin: 0 0 6px 0; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.8px; display: flex; justify-content: space-between; }
-    #profile-canvas { width: 100%; height: 120px; background: #0b0f19; border-radius: 6px; border: 1px solid #1e293b; }
+    #profile-canvas { width: 100%; height: 120px; background: #070a13; border-radius: 4px; border: 1px solid #1e293b; }
   </style>
 </head>
 <body>
-  <div id="hud">
-    <h2>TARA-3D Elevation Engine</h2>
-    <p>Status: <span id="status-text" style="color: #4ade80;">Ready</span></p>
-    <p>Datum: ISRO CartoDEM / SRTM Anchored</p>
-    
-    <div class="control-group" style="border-top: none; padding-top: 2px;">
-      <div class="datum-inputs">
-        <div>
-          <label>Base AMSL (m)</label>
-          <input type="number" id="base-datum-input" value="240">
-        </div>
-        <div>
-          <label>Relief Scale (m)</label>
-          <input type="number" id="relief-scale-input" value="65">
-        </div>
-      </div>
-    </div>
+  <!-- Institutional Mission Header -->
+  <div id="mission-bar">
+    <div><strong>TARA-3D</strong> | SAC-ISRO PS SIH26175 Photogrammetric Engine</div>
+    <div>Sensor Mode: <strong>Single Monocular / RPC Synthetic</strong> | Datum: <strong>EGM96 / WGS84</strong></div>
+  </div>
 
+  <div id="hud">
+    <h2>Surface Reconstruction</h2>
+    <p style="font-size: 11px; margin: 0 0 8px 0; color: #94a3b8;">Status: <span id="status-text" style="color: #34d399;">Ready</span></p>
+    
     <label class="btn btn-primary">
-      Upload Optical / GeoTIFF Image
+      Upload ISRO/Optical Image
       <input type="file" id="file-input" accept="image/*,.tif,.tiff">
     </label>
 
     <div class="control-group">
-      <p style="font-weight: 600; color: #cbd5e1; margin-bottom: 6px;">Texture Layer</p>
+      <p style="font-weight: 600; color: #cbd5e1; margin: 0 0 4px 0; font-size: 11px;">Dual-Band Surface Display</p>
       <div style="display: flex; gap: 6px;">
-        <button id="toggle-rgb" class="btn btn-secondary" style="margin-top:0;">Satellite RGB</button>
-        <button id="toggle-turbo" class="btn btn-secondary" style="margin-top:0;">Turbo DSM</button>
+        <button id="toggle-rgb" class="btn btn-secondary" style="margin-top:0;">Orthophoto RGB</button>
+        <button id="toggle-turbo" class="btn btn-secondary" style="margin-top:0;">Turbo Metric DSM</button>
       </div>
     </div>
 
     <div class="control-group">
       <label class="slider-label">
-        <span>Elevation Cutoff Slice</span>
+        <span>Dynamic Elevation Slice</span>
         <span id="slice-val">None</span>
       </label>
       <input type="range" id="slice-slider" min="0" max="100" value="0">
@@ -112,48 +115,44 @@
         <button id="toggle-profile" class="btn btn-profile" style="margin-top:0; width: 50%;">2D Profile</button>
       </div>
       <div id="measure-box" style="display: none;">
-        <div>Point A: <span id="pt-a">Click surface</span></div>
-        <div>Point B: <span id="pt-b">Click surface</span></div>
-        <div style="font-weight: bold; color: #38bdf8; margin-top: 4px;">Height Diff (ΔZ): <span id="delta-z">--</span></div>
+        <div>Anchor A: <span id="pt-a">Click surface</span></div>
+        <div>Anchor B: <span id="pt-b">Click surface</span></div>
+        <div style="font-weight: bold; color: #38bdf8; margin-top: 4px;">Vertical Relief (ΔZ): <span id="delta-z">--</span></div>
       </div>
     </div>
 
     <div class="control-group">
-      <button id="export-gltf" class="btn btn-success">Export 3D Mesh (.GLB)</button>
-    </div>
-
-    <div id="geo-panel">
-      <p style="font-weight: 600; color: #38bdf8; margin-bottom: 4px;">Spatial Metadata</p>
-      <div>Source Format: <span id="geo-format">Standard Raster</span></div>
-      <div>Spatial CRS: <span id="geo-crs">Projected Local</span></div>
-      <div>GSD Resolution: <span id="geo-gsd">0.50 m/px</span></div>
-    </div>
-
-    <div id="telemetry">
-      <div>Min Datum: <span id="min-elev">--</span></div>
-      <div>Max Altitude: <span id="max-elev">--</span></div>
-      <div>Scale Factor: <span id="scale-val">--</span></div>
+      <p style="font-weight: 600; color: #cbd5e1; margin: 0 0 4px 0; font-size: 11px;">Export Geospatial Deliverables</p>
+      <button id="export-geotiff" class="btn btn-tiff">Export 32-Bit GeoTIFF (.TIF)</button>
+      <button id="export-gltf" class="btn btn-glb">Export 3D Mesh (.GLB)</button>
     </div>
 
     <div id="accuracy-panel">
-      <p style="font-weight: 600; color: #38bdf8; margin-bottom: 4px;">Validation Metrics (LE90 Benchmark)</p>
-      <div>Vertical RMSE: <span id="val-rmse" style="color: #4ade80;">--</span></div>
-      <div>Mean Abs Error (MAE): <span id="val-mae" style="color: #4ade80;">--</span></div>
-      <div>LE90 Confidence: <span id="val-le90" class="badge">--</span></div>
+      <p style="font-weight: 600; color: #38bdf8; margin-bottom: 4px;">Validation (SRTM 30m Dual-Band)</p>
+      <div>Vertical RMSE: <span id="val-rmse" style="color: #34d399;">--</span></div>
+      <div>Mean Abs Error (MAE): <span id="val-mae" style="color: #34d399;">--</span></div>
+      <div>LE90 Benchmark: <span id="val-le90" class="badge-pass">--</span></div>
+    </div>
+
+    <div id="telemetry">
+      <div>Min AMSL Elevation: <span id="min-elev">--</span></div>
+      <div>Max AMSL Elevation: <span id="max-elev">--</span></div>
+      <div>Huber Scale Gradient (s): <span id="scale-val">--</span></div>
     </div>
   </div>
 
-  <!-- 2D Profile Drawer -->
+  <!-- Bottom 2D Elevation Profile Drawer -->
   <div id="profile-drawer">
     <h3>
       <span>Elevation Cross-Section Transect</span>
-      <span id="profile-status" style="color: #f59e0b; font-size: 10px;">Select 2 Points On Surface</span>
+      <span id="profile-status" style="color: #f59e0b; font-size: 10px;">Click Two Points On Terrain</span>
     </h3>
-    <canvas id="profile-canvas" width="548" height="110"></canvas>
+    <canvas id="profile-canvas" width="572" height="115"></canvas>
   </div>
 
   <div id="canvas-container"></div>
 
+  <!-- Airgapped Local Vendor Scripts -->
   <script src="js/vendor/three.min.js"></script>
   <script src="js/vendor/OrbitControls.js"></script>
   <script src="js/vendor/GLTFExporter.js"></script>
