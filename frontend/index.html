@@ -9,12 +9,12 @@
     #hud {
       position: absolute; top: 16px; left: 16px;
       background: rgba(15, 23, 42, 0.92); backdrop-filter: blur(12px);
-      padding: 18px 20px; border-radius: 10px; border: 1px solid #334155;
-      color: #fff; width: 300px; box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+      padding: 16px 20px; border-radius: 10px; border: 1px solid #334155;
+      color: #fff; width: 310px; box-shadow: 0 8px 32px rgba(0,0,0,0.6);
       z-index: 10;
     }
-    h2 { font-size: 13px; margin: 0 0 8px 0; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.8px; }
-    p { font-size: 11px; margin: 3px 0; color: #94a3b8; }
+    h2 { font-size: 13px; margin: 0 0 6px 0; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.8px; }
+    p { font-size: 11px; margin: 2px 0; color: #94a3b8; }
     
     .btn {
       display: block; width: 100%; box-sizing: border-box;
@@ -26,25 +26,50 @@
     .btn-primary:hover { background: #0369a1; }
     .btn-secondary { background: #1e293b; color: #e2e8f0; border: 1px solid #475569; }
     .btn-secondary:hover { background: #334155; }
+    .btn-measure { background: #8b5cf6; color: #fff; }
+    .btn-measure.active { background: #ec4899; }
     .btn-success { background: #10b981; color: #fff; }
     .btn-success:hover { background: #059669; }
 
     input[type="file"] { display: none; }
     
-    .control-group { margin-top: 12px; border-top: 1px solid #334155; padding-top: 10px; }
+    .control-group { margin-top: 10px; border-top: 1px solid #334155; padding-top: 8px; }
     label.slider-label { font-size: 11px; color: #cbd5e1; display: flex; justify-content: space-between; margin-bottom: 4px; }
     input[type="range"] { width: 100%; accent-color: #38bdf8; cursor: pointer; }
     
-    #telemetry { margin-top: 12px; border-top: 1px solid #334155; padding-top: 8px; font-size: 11px; color: #cbd5e1; }
+    .datum-inputs { display: flex; gap: 8px; margin-top: 6px; }
+    .datum-inputs div { width: 50%; }
+    .datum-inputs label { font-size: 10px; color: #94a3b8; display: block; margin-bottom: 2px; }
+    .datum-inputs input {
+      width: 100%; box-sizing: border-box; padding: 6px;
+      background: #1e293b; color: #fff; border: 1px solid #475569;
+      border-radius: 4px; font-size: 11px;
+    }
+
+    #telemetry { margin-top: 10px; border-top: 1px solid #334155; padding-top: 8px; font-size: 11px; color: #cbd5e1; }
     #telemetry div { margin: 2px 0; }
+    #measure-box { margin-top: 8px; padding: 8px; background: rgba(30, 41, 59, 0.7); border-radius: 6px; font-size: 11px; border: 1px dashed #64748b; }
   </style>
 </head>
 <body>
   <div id="hud">
     <h2>TARA-3D Elevation Engine</h2>
     <p>Status: <span id="status-text" style="color: #4ade80;">Ready</span></p>
-    <p>Controls: Left Drag (Orbit) | Scroll (Zoom)</p>
+    <p>Datum: ISRO CartoDEM / SRTM Anchored</p>
     
+    <div class="control-group" style="border-top: none; padding-top: 2px;">
+      <div class="datum-inputs">
+        <div>
+          <label>Base AMSL (m)</label>
+          <input type="number" id="base-datum-input" value="240">
+        </div>
+        <div>
+          <label>Relief Scale (m)</label>
+          <input type="number" id="relief-scale-input" value="65">
+        </div>
+      </div>
+    </div>
+
     <label class="btn btn-primary">
       Upload Satellite Image
       <input type="file" id="file-input" accept="image/*">
@@ -64,6 +89,15 @@
         <span id="slice-val">None</span>
       </label>
       <input type="range" id="slice-slider" min="0" max="100" value="0">
+    </div>
+
+    <div class="control-group">
+      <button id="toggle-measure" class="btn btn-measure">Ruler: 2-Point Height Tool</button>
+      <div id="measure-box" style="display: none;">
+        <div>Point A: <span id="pt-a">Click surface</span></div>
+        <div>Point B: <span id="pt-b">Click surface</span></div>
+        <div style="font-weight: bold; color: #38bdf8; margin-top: 4px;">Height Diff (ΔZ): <span id="delta-z">--</span></div>
+      </div>
     </div>
 
     <div class="control-group">

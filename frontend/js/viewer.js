@@ -25,6 +25,8 @@ const geometry = new THREE.PlaneGeometry(50, 50, GRID_SIZE - 1, GRID_SIZE - 1);
 let rgbTexture = null;
 let turboTexture = null;
 let maxHeightRelief = 1.0;
+let minElevation = 0;
+let maxElevation = 0;
 
 const material = new THREE.MeshStandardMaterial({
   color: 0xffffff,
@@ -36,16 +38,44 @@ const material = new THREE.MeshStandardMaterial({
 const terrainMesh = new THREE.Mesh(geometry, material);
 scene.add(terrainMesh);
 
+// Measurement variables
+let measureMode = false;
+let clickPoints = [];
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const markers = [];
+
+function createMarker(pos, color) {
+  const markerGeo = new THREE.SphereGeometry(0.5, 16, 16);
+  const markerMat = new THREE.MeshBasicMaterial({ color: color });
+  const marker = new THREE.Mesh(markerGeo, markerMat);
+  marker.position.copy(pos);
+  scene.add(marker);
+  markers.push(marker);
+}
+
+function clearMarkers() {
+  markers.forEach(m => scene.remove(m));
+  markers.length = 0;
+  clickPoints = [];
+}
+
+// 1. INFERENCE & METRIC RECONSTRUCTION
 document.getElementById('file-input').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
 
   const statusText = document.getElementById('status-text');
-  statusText.textContent = "Inferring & Calibrating...";
+  statusText.textContent = "Anchoring Datum & Inferring...";
   statusText.style.color = "#facc15";
+
+  const baseDatum = document.getElementById('base-datum-input').value || 240;
+  const reliefScale = document.getElementById('relief-scale-input').value || 65;
 
   const formData = new FormData();
   formData.append('file', file);
+  formData.append('base_datum_m', baseDatum);
+  formData.append('max_relief_m', reliefScale);
 
   try {
     const res = await fetch('http://127.0.0.1:8000/api/reconstruct', {
@@ -55,8 +85,10 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
     if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
     const data = await res.json();
 
-    document.getElementById('min-elev').textContent = data.elevation_min_m + " m";
-    document.getElementById('max-elev').textContent = data.elevation_max_m + " m";
+    minElevation = data.elevation_min_m;
+    maxElevation = data.elevation_max_m;
+    document.getElementById('min-elev').textContent = minElevation + " m";
+    document.getElementById('max-elev').textContent = maxElevation + " m";
     document.getElementById('scale-val').textContent = data.scale_factor;
 
     const reader = new FileReader();
@@ -77,7 +109,7 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
         const imgData = ctx.getImageData(0, 0, GRID_SIZE, GRID_SIZE).data;
         const pos = geometry.attributes.position;
 
-        maxHeightRelief = (data.elevation_max_m - data.elevation_min_m) * 0.05;
+        maxHeightRelief = (maxElevation - minElevation) * 0.05;
 
         for (let i = 0; i < pos.count; i++) {
           const r = imgData[i * 4];
@@ -111,6 +143,7 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
   }
 });
 
+// 2. TEXTURE TOGGLE
 document.getElementById('toggle-rgb').addEventListener('click', () => {
   if (rgbTexture) {
     terrainMesh.material.map = rgbTexture;
@@ -125,6 +158,7 @@ document.getElementById('toggle-turbo').addEventListener('click', () => {
   }
 });
 
+// 3. ELEVATION SLICER
 const slider = document.getElementById('slice-slider');
 const sliceLabel = document.getElementById('slice-val');
 
@@ -155,6 +189,59 @@ slider.addEventListener('input', (e) => {
   terrainMesh.material.needsUpdate = true;
 });
 
+// 4. RAYCASTING MEASUREMENT TOOL
+const measureBtn = document.getElementById('toggle-measure');
+const measureBox = document.getElementById('measure-box');
+
+measureBtn.addEventListener('click', () => {
+  measureMode = !measureMode;
+  measureBtn.classList.toggle('active', measureMode);
+  measureBox.style.display = measureMode ? 'block' : 'none';
+  controls.enabled = !measureMode;
+  if (!measureMode) {
+    clearMarkers();
+    document.getElementById('pt-a').textContent = "Click surface";
+    document.getElementById('pt-b').textContent = "Click surface";
+    document.getElementById('delta-z').textContent = "--";
+  }
+});
+
+window.addEventListener('click', (e) => {
+  if (!measureMode) return;
+  if (e.target.closest('#hud')) return;
+
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObject(terrainMesh);
+
+  if (intersects.length > 0) {
+    const pt = intersects[0].point;
+    if (clickPoints.length >= 2) {
+      clearMarkers();
+    }
+    clickPoints.push(pt);
+    createMarker(pt, clickPoints.length === 1 ? 0x38bdf8 : 0xec4899);
+
+    const calcElev = (z) => {
+      const ratio = Math.max(0, Math.min(1, z / maxHeightRelief));
+      return (minElevation + ratio * (maxElevation - minElevation)).toFixed(1);
+    };
+
+    if (clickPoints.length === 1) {
+      document.getElementById('pt-a').textContent = `${calcElev(pt.z)} m`;
+      document.getElementById('pt-b').textContent = "Click surface";
+      document.getElementById('delta-z').textContent = "--";
+    } else if (clickPoints.length === 2) {
+      document.getElementById('pt-b').textContent = `${calcElev(pt.z)} m`;
+      const diff = Math.abs(parseFloat(document.getElementById('pt-b').textContent) - parseFloat(document.getElementById('pt-a').textContent)).toFixed(1);
+      document.getElementById('delta-z').textContent = `${diff} m`;
+    }
+  }
+});
+
+// 5. EXPORT GLB
 document.getElementById('export-gltf').addEventListener('click', () => {
   const exporter = new THREE.GLTFExporter();
   exporter.parse(
