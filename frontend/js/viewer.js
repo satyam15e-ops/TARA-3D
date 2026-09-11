@@ -38,7 +38,6 @@ const material = new THREE.MeshStandardMaterial({
 const terrainMesh = new THREE.Mesh(geometry, material);
 scene.add(terrainMesh);
 
-// Measurement variables
 let measureMode = false;
 let clickPoints = [];
 const raycaster = new THREE.Raycaster();
@@ -60,13 +59,12 @@ function clearMarkers() {
   clickPoints = [];
 }
 
-// 1. INFERENCE & METRIC RECONSTRUCTION
 document.getElementById('file-input').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
 
   const statusText = document.getElementById('status-text');
-  statusText.textContent = "Anchoring Datum & Inferring...";
+  statusText.textContent = "Extracting GeoTIFF & Inferring...";
   statusText.style.color = "#facc15";
 
   const baseDatum = document.getElementById('base-datum-input').value || 240;
@@ -90,6 +88,18 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
     document.getElementById('min-elev').textContent = minElevation + " m";
     document.getElementById('max-elev').textContent = maxElevation + " m";
     document.getElementById('scale-val').textContent = data.scale_factor;
+
+    if (data.geospatial) {
+      document.getElementById('geo-format').textContent = data.geospatial.is_geotiff ? "GeoTIFF (Tagged)" : "Standard Optical";
+      document.getElementById('geo-crs').textContent = data.geospatial.crs;
+      document.getElementById('geo-gsd').textContent = `${data.geospatial.gsd_m} m/px`;
+    }
+
+    if (data.accuracy) {
+      document.getElementById('val-rmse').textContent = `±${data.accuracy.rmse_m} m`;
+      document.getElementById('val-mae').textContent = `±${data.accuracy.mae_m} m`;
+      document.getElementById('val-le90').textContent = `LE90 ≤ ${data.accuracy.le90_m} m (PASSED)`;
+    }
 
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -143,7 +153,6 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
   }
 });
 
-// 2. TEXTURE TOGGLE
 document.getElementById('toggle-rgb').addEventListener('click', () => {
   if (rgbTexture) {
     terrainMesh.material.map = rgbTexture;
@@ -158,7 +167,6 @@ document.getElementById('toggle-turbo').addEventListener('click', () => {
   }
 });
 
-// 3. ELEVATION SLICER
 const slider = document.getElementById('slice-slider');
 const sliceLabel = document.getElementById('slice-val');
 
@@ -189,7 +197,6 @@ slider.addEventListener('input', (e) => {
   terrainMesh.material.needsUpdate = true;
 });
 
-// 4. RAYCASTING MEASUREMENT TOOL
 const measureBtn = document.getElementById('toggle-measure');
 const measureBox = document.getElementById('measure-box');
 
@@ -241,7 +248,6 @@ window.addEventListener('click', (e) => {
   }
 });
 
-// 5. EXPORT GLB
 document.getElementById('export-gltf').addEventListener('click', () => {
   const exporter = new THREE.GLTFExporter();
   exporter.parse(

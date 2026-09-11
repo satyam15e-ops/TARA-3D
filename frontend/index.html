@@ -8,10 +8,10 @@
     #canvas-container { width: 100vw; height: 100vh; }
     #hud {
       position: absolute; top: 16px; left: 16px;
-      background: rgba(15, 23, 42, 0.92); backdrop-filter: blur(12px);
+      background: rgba(15, 23, 42, 0.94); backdrop-filter: blur(12px);
       padding: 16px 20px; border-radius: 10px; border: 1px solid #334155;
-      color: #fff; width: 310px; box-shadow: 0 8px 32px rgba(0,0,0,0.6);
-      z-index: 10;
+      color: #fff; width: 320px; box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+      z-index: 10; max-height: 94vh; overflow-y: auto;
     }
     h2 { font-size: 13px; margin: 0 0 6px 0; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.8px; }
     p { font-size: 11px; margin: 2px 0; color: #94a3b8; }
@@ -46,8 +46,9 @@
       border-radius: 4px; font-size: 11px;
     }
 
-    #telemetry { margin-top: 10px; border-top: 1px solid #334155; padding-top: 8px; font-size: 11px; color: #cbd5e1; }
-    #telemetry div { margin: 2px 0; }
+    #telemetry, #accuracy-panel, #geo-panel { margin-top: 10px; border-top: 1px solid #334155; padding-top: 8px; font-size: 11px; color: #cbd5e1; }
+    #telemetry div, #accuracy-panel div, #geo-panel div { margin: 2px 0; }
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; background: #065f46; color: #6ee7b7; }
     #measure-box { margin-top: 8px; padding: 8px; background: rgba(30, 41, 59, 0.7); border-radius: 6px; font-size: 11px; border: 1px dashed #64748b; }
   </style>
 </head>
@@ -71,8 +72,8 @@
     </div>
 
     <label class="btn btn-primary">
-      Upload Satellite Image
-      <input type="file" id="file-input" accept="image/*">
+      Upload Optical / GeoTIFF Image
+      <input type="file" id="file-input" accept="image/*,.tif,.tiff">
     </label>
 
     <div class="control-group">
@@ -104,10 +105,24 @@
       <button id="export-gltf" class="btn btn-success">Export 3D Mesh (.GLB)</button>
     </div>
 
+    <div id="geo-panel">
+      <p style="font-weight: 600; color: #38bdf8; margin-bottom: 4px;">Spatial Metadata</p>
+      <div>Source Format: <span id="geo-format">Standard Raster</span></div>
+      <div>Spatial CRS: <span id="geo-crs">Projected Local</span></div>
+      <div>GSD Resolution: <span id="geo-gsd">0.50 m/px</span></div>
+    </div>
+
     <div id="telemetry">
       <div>Min Datum: <span id="min-elev">--</span></div>
       <div>Max Altitude: <span id="max-elev">--</span></div>
       <div>Scale Factor: <span id="scale-val">--</span></div>
+    </div>
+
+    <div id="accuracy-panel">
+      <p style="font-weight: 600; color: #38bdf8; margin-bottom: 4px;">Validation Metrics (LE90 Benchmark)</p>
+      <div>Vertical RMSE: <span id="val-rmse" style="color: #4ade80;">--</span></div>
+      <div>Mean Abs Error (MAE): <span id="val-mae" style="color: #4ade80;">--</span></div>
+      <div>LE90 Confidence: <span id="val-le90" class="badge">--</span></div>
     </div>
   </div>
 

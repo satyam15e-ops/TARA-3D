@@ -10,3 +10,4 @@ pillow
 numpy
 matplotlib
 python-multipart
+rasterio>=1.3.0
