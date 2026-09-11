@@ -1,12 +1,17 @@
-﻿import numpy as np
+﻿import matplotlib
+matplotlib.use('Agg')  # Prevents server thread crashes
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+import numpy as np
 
 def export_metric_dsm_with_legend(metric_elevation: np.ndarray, output_path: str):
     z_min = float(np.nanpercentile(metric_elevation, 1.0))
     z_max = float(np.nanpercentile(metric_elevation, 99.0))
-    z_mean = float(np.nanmean(metric_elevation))
+    
+    # Avoid zero-division if the area is flat
+    if abs(z_max - z_min) < 1e-3:
+        z_max = z_min + 1.0
 
     fig, ax = plt.subplots(figsize=(8, 6), dpi=200)
     fig.patch.set_facecolor("#0F172A")
@@ -25,4 +30,4 @@ def export_metric_dsm_with_legend(metric_elevation: np.ndarray, output_path: str
 
     plt.tight_layout()
     plt.savefig(output_path, facecolor=fig.get_facecolor(), bbox_inches="tight")
-    plt.close()
+    plt.close(fig)

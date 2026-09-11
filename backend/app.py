@@ -4,9 +4,9 @@ from PIL import Image
 import numpy as np
 import io
 import os
-from depth_engine import DepthEngine
-from calibrator import HuberRANSACCalibrator
-from legend_generator import export_metric_dsm_with_legend
+from backend.depth_engine import DepthEngine
+from backend.calibrator import HuberRANSACCalibrator
+from backend.legend_generator import export_metric_dsm_with_legend
 
 app = FastAPI(title="TARA-3D Elevation API")
 
