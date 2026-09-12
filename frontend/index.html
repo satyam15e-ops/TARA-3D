@@ -2,174 +2,98 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>TARA-3D | ISRO SAC Single-View Height Estimation & 3D Flythrough</title>
-  <style>
-    body { margin: 0; overflow: hidden; background: #060913; font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif; }
-    #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; }
-    
-    /* Top ISRO / Bhuvan Header Bar */
-    #bhuvan-header {
-      position: absolute; top: 0; left: 0; right: 0; height: 42px;
-      background: rgba(10, 18, 36, 0.96); backdrop-filter: blur(8px);
-      border-bottom: 2px solid #0284c7; display: flex; align-items: center;
-      justify-content: space-between; padding: 0 16px; z-index: 20; color: #cbd5e1; font-size: 12px;
-    }
-    .header-logo { display: flex; align-items: center; gap: 8px; font-weight: 700; color: #38bdf8; letter-spacing: 0.5px; }
-    .header-logo span { color: #f97316; font-size: 10px; border: 1px solid #f97316; padding: 1px 4px; border-radius: 3px; }
-    
-    /* Floating Mission Control Dock */
-    #hud {
-      position: absolute; top: 52px; left: 14px;
-      background: rgba(10, 16, 30, 0.94); backdrop-filter: blur(14px);
-      padding: 14px 16px; border-radius: 6px; border: 1px solid #1e293b;
-      color: #fff; width: 320px; box-shadow: 0 12px 40px rgba(0,0,0,0.7);
-      z-index: 15; max-height: 86vh; overflow-y: auto;
-    }
-    h2 { font-size: 11px; margin: 0 0 6px 0; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.8px; }
-    
-    .btn {
-      display: block; width: 100%; box-sizing: border-box;
-      padding: 8px 10px; margin-top: 5px; border-radius: 4px;
-      font-size: 11px; font-weight: 600; text-align: center;
-      cursor: pointer; border: none; transition: 0.15s ease;
-    }
-    .btn-primary { background: #0284c7; color: #fff; }
-    .btn-primary:hover { background: #0369a1; }
-    .btn-fly { background: #e11d48; color: #fff; }
-    .btn-fly.active { background: #881337; border: 1px solid #fb7185; }
-    .btn-fpv { background: #0d9488; color: #fff; }
-    .btn-fpv.active { background: #042f2e; border: 1px solid #14b8a6; }
-    .btn-secondary { background: #1e293b; color: #cbd5e1; border: 1px solid #334155; }
-    .btn-secondary.active { background: #0369a1; color: #fff; border-color: #38bdf8; }
-    .btn-measure { background: #7c3aed; color: #fff; }
-    .btn-measure.active { background: #4c1d95; border: 1px solid #a78bfa; }
-    .btn-profile { background: #d97706; color: #fff; }
-    .btn-profile.active { background: #78350f; border: 1px solid #f59e0b; }
-    .btn-tiff { background: #059669; color: #fff; }
-    .btn-glb { background: #334155; color: #e2e8f0; border: 1px solid #475569; }
-
-    input[type="file"] { display: none; }
-    .control-group { margin-top: 8px; border-top: 1px solid #1e293b; padding-top: 6px; }
-
-    .badge-regime { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; background: #1e1b4b; color: #818cf8; }
-    .badge-pass { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; background: #064e3b; color: #34d399; }
-    
-    /* Live Bhuvan Cursor Telemetry Bar */
-    #telemetry-bar {
-      position: absolute; bottom: 12px; left: 14px;
-      background: rgba(10, 16, 30, 0.92); backdrop-filter: blur(8px);
-      padding: 6px 14px; border-radius: 4px; border: 1px solid #1e293b;
-      color: #94a3b8; font-size: 11px; z-index: 15; display: flex; gap: 16px;
-      font-family: monospace;
-    }
-    #telemetry-bar span { color: #f8fafc; font-weight: bold; }
-
-    /* Cross-Section Transect Graph */
-    #profile-drawer {
-      position: absolute; bottom: 12px; right: 14px;
-      width: 480px; height: 140px;
-      background: rgba(10, 16, 30, 0.94); backdrop-filter: blur(10px);
-      border: 1px solid #1e293b; border-radius: 6px;
-      padding: 8px 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);
-      display: none; z-index: 15;
-    }
-    #profile-drawer h3 { font-size: 10px; margin: 0 0 4px 0; color: #38bdf8; text-transform: uppercase; display: flex; justify-content: space-between; }
-    #profile-canvas { width: 100%; height: 95px; background: #060913; border-radius: 4px; border: 1px solid #1e293b; }
-
-    #measure-box { margin-top: 6px; padding: 6px; background: rgba(15, 23, 42, 0.8); border-radius: 4px; font-size: 11px; border: 1px dashed #475569; display: none; }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TARA-3D | ISRO SAC SIH26175 GIS Cockpit</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
 </head>
 <body>
-  <!-- Header Bar -->
   <div id="bhuvan-header">
-    <div class="header-logo">
-      TARA-3D <span>ISRO SAC SIH26175</span>
-      <div style="font-weight: normal; color: #94a3b8; margin-left: 10px; font-size: 11px;">Single-View Height Estimation & 3D Flythrough</div>
+    <div class="brand-title">
+      <span class="brand-name">TARA-3D</span>
+      <span class="isro-tag">ISRO SAC SIH26175</span>
+      <span class="sub-name">Single-View Height Estimation & 3D Flythrough</span>
     </div>
-    <div>Pipeline: <span id="pipeline-mode" style="color: #38bdf8; font-weight: bold;">Standby</span> | Status: <span id="status-text" style="color: #34d399;">Ready</span></div>
-  </div>
-
-  <!-- Mission Control HUD -->
-  <div id="hud">
-    <h2>1. Ingestion (PNG / JPG / GeoTIFF)</h2>
-    <label class="btn btn-primary">
-      Select Optical Satellite Image
-      <input type="file" id="file-input" accept="image/*,.tif,.tiff">
-    </label>
-
-    <div style="margin-top: 6px; font-size: 11px; color: #cbd5e1;">
-      <div>Terrain Classification: <span id="regime-tag" class="badge-regime">Awaiting Ingestion</span></div>
-      <div>Geodetic Metadata: <span id="meta-crs" style="color:#94a3b8;">EPSG:4326 Standard</span></div>
+    <div class="system-status">
+      Pipeline: <span id="pipeline-mode">Relative DSM (SRTM Anchored)</span> | Status: <span id="status-text">Operational (60 FPS)</span>
     </div>
-
-    <div class="control-group">
-      <h2>2. Perspective & Navigation</h2>
-      <div style="display: flex; gap: 6px;">
-        <button id="view-2d" class="btn btn-secondary active" style="width: 50%; margin-top:0;">2D Bhuvan View</button>
-        <button id="view-3d" class="btn btn-secondary" style="width: 50%; margin-top:0;">3D Perspective</button>
-      </div>
-      <button id="btn-flythrough" class="btn btn-fly">Engage Autonomous Flythrough</button>
-      <button id="btn-fpv" class="btn btn-fpv">First-Person Drone Flight (WASD)</button>
-    </div>
-
-    <div class="control-group">
-      <h2>3. Layer Visualization</h2>
-      <div style="display: flex; gap: 6px;">
-        <button id="toggle-rgb" class="btn btn-secondary active" style="width: 50%; margin-top:0;">Orthophoto RGB</button>
-        <button id="toggle-turbo" class="btn btn-secondary" style="width: 50%; margin-top:0;">Metric Elevation DSM</button>
-      </div>
-    </div>
-
-    <div class="control-group">
-      <h2>4. Topographic Analysis</h2>
-      <div style="display: flex; gap: 6px;">
-        <button id="toggle-measure" class="btn btn-measure" style="width: 50%; margin-top:0;">Ruler (ΔZ & Slope)</button>
-        <button id="toggle-profile" class="btn btn-profile" style="width: 50%; margin-top:0;">2D Transect</button>
-      </div>
-      <div id="measure-box">
-        <div>Point A: <span id="pt-a">Click point on surface</span></div>
-        <div>Point B: <span id="pt-b">Click second point</span></div>
-        <div style="font-weight: bold; color: #38bdf8; margin-top: 4px;">Vertical Relief (ΔZ): <span id="delta-z">--</span></div>
-        <div style="color: #f59e0b;">Terrain Slope: <span id="slope-deg">--</span></div>
-      </div>
-    </div>
-
-    <div class="control-group">
-      <h2>5. Survey Deliverables</h2>
-      <button id="export-geotiff" class="btn btn-tiff">Export 32-Bit GeoTIFF (.TIF)</button>
-      <button id="export-gltf" class="btn btn-glb">Export 3D Mesh (.GLB)</button>
-    </div>
-
-    <div class="control-group" style="font-size: 11px; color: #cbd5e1;">
-      <div style="font-weight: 600; color: #38bdf8; margin-bottom: 2px;">Survey Validation (50% Criteria)</div>
-      <div>Vertical RMSE: <span id="val-rmse" style="color: #34d399;">±1.35 m</span></div>
-      <div>Linear Error (LE90): <span id="val-le90" class="badge-pass">LE90 ≤ 1.58 m (PASSED)</span></div>
-      <div>Pearson Correlation (r): <span id="val-corr" style="color: #38bdf8;">0.880</span></div>
-    </div>
-  </div>
-
-  <!-- Live Cursor Telemetry Bar -->
-  <div id="telemetry-bar">
-    <div>LAT: <span id="cur-lat">28.6175° N</span></div>
-    <div>LON: <span id="cur-lon">77.2075° E</span></div>
-    <div>ELEV: <span id="cur-elev">245.2 m AMSL</span></div>
-    <div>RELIEF: <span id="cur-relief">65.0 m</span></div>
-  </div>
-
-  <!-- Elevation Cross-Section Transect Graph -->
-  <div id="profile-drawer">
-    <h3>
-      <span>Elevation Cross-Section Transect</span>
-      <span id="profile-status" style="color: #f59e0b;">Click Two Surface Points</span>
-    </h3>
-    <canvas id="profile-canvas" width="456" height="95"></canvas>
   </div>
 
   <div id="canvas-container"></div>
 
-  <script src="js/vendor/three.min.js"></script>
-  <script src="js/vendor/OrbitControls.js"></script>
-  <script src="js/vendor/GLTFExporter.js"></script>
+  <div id="hud">
+    <div class="hud-panel">
+      <div class="section-title">1. INGESTION (PNG / JPG / GEOTIFF)</div>
+      <label class="custom-file-upload">
+        <input type="file" id="file-input" accept="image/*,.tif,.tiff">
+        Select Optical Satellite Image
+      </label>
+      <div class="meta-info">
+        Terrain Classification: <span id="regime-tag" class="highlight">URBAN STRUCTURAL</span><br>
+        Geodetic Metadata: <span id="meta-crs">EPSG:4326</span>
+      </div>
+
+      <div class="section-title">2. PERSPECTIVE &amp; NAVIGATION</div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+        <button id="view-2d" class="action-btn">2D Bhuvan View</button>
+        <button id="view-3d" class="action-btn active">3D Perspective</button>
+      </div>
+      <button id="btn-flythrough" class="action-btn-danger" style="margin-top: 8px;">Engage Autonomous Flythrough</button>
+      <button id="btn-fpv" class="action-btn-flight" style="margin-top: 8px;">First-Person Drone Flight (WASD)</button>
+
+      <div class="section-title">3. LAYER VISUALIZATION</div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+        <button id="toggle-rgb" class="action-btn active">Orthophoto RGB</button>
+        <button id="toggle-turbo" class="action-btn">Metric Elevation DSM</button>
+      </div>
+
+      <div class="section-title">4. TOPOGRAPHIC ANALYSIS &amp; DISASTER TRIAGE</div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+        <button id="toggle-measure" class="action-btn">Ruler (ΔZ &amp; Slope)</button>
+        <button id="toggle-profile" class="action-btn">2D Transect</button>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+        <button id="btn-flood-sim" class="action-btn" style="border-color: #38bdf8;">Simulate Flood (+5m)</button>
+        <button id="btn-helipad-zones" class="action-btn" style="border-color: #34d399;">Detect Helipads</button>
+      </div>
+
+      <div id="measure-box" style="display:none; margin-top:10px; padding:10px; background:rgba(15,23,42,0.85); border:1px solid #38bdf8; border-radius:4px; font-size:11px;">
+        <div>Point A: <span id="pt-a">Click surface point</span></div>
+        <div>Point B: <span id="pt-b">Click rooftop/endpoint</span></div>
+        <div>Vertical Relief (ΔZ): <span id="delta-z" style="color:#38bdf8; font-weight:bold;">--</span></div>
+        <div>Surface Slope: <span id="slope-deg" style="color:#f59e0b; font-weight:bold;">--</span></div>
+      </div>
+
+      <div class="section-title">5. SURVEY DELIVERABLES</div>
+      <button id="export-geotiff" class="action-btn-secondary">Export 32-Bit GeoTIFF (.TIF)</button>
+      <button id="export-gltf" class="action-btn-secondary" style="margin-top: 8px;">Export 3D Mesh (.GLB)</button>
+
+      <div class="accuracy-card">
+        <div class="accuracy-title">Survey Validation (50% Criteria)</div>
+        <div>Vertical RMSE: <span id="val-rmse">±1.35 m</span></div>
+        <div>Linear Error (LE90): <span id="val-le90" style="color: #34d399;">LE90 ≤ 1.58 m (PASSED)</span></div>
+        <div>Pearson Correlation (r): <span id="val-corr">0.88</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="profile-drawer" style="display: none;">
+    <div style="display: flex; justify-content: space-between; font-size: 11px; font-weight: bold; margin-bottom: 4px;">
+      <span>ELEVATION CROSS-SECTION TRANSECT</span>
+      <span id="profile-status" style="color: #f59e0b;">CLICK TWO SURFACE POINTS</span>
+    </div>
+    <canvas id="profile-canvas" width="380" height="90"></canvas>
+  </div>
+
+  <div id="telemetry-bar">
+    LAT: <span id="cur-lat">28.61450° N</span>&nbsp;&nbsp;
+    LON: <span id="cur-lon">77.20900° E</span>&nbsp;&nbsp;
+    ELEV: <span id="cur-elev">284.5 m AMSL</span>&nbsp;&nbsp;
+    RELIEF: <span id="cur-relief">65.0 m</span>
+  </div>
+
   <script src="js/viewer.js"></script>
 </body>
 </html>
