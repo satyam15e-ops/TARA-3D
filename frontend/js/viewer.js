@@ -204,8 +204,9 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
     for (let r = 0; r < GRID_SIZE; r++) {
       for (let c = 0; c < GRID_SIZE; c++) {
         const idx = r * GRID_SIZE + c;
+        const isEdge = (r === 0 || r === GRID_SIZE - 1 || c === 0 || c === GRID_SIZE - 1);
         const rawZ = rawGridMatrix[r][c];
-        const normZ = THREE.MathUtils.clamp((rawZ - minElevation) / elevRange, 0.0, 1.0);
+        const normZ = isEdge ? 0.0 : THREE.MathUtils.clamp((rawZ - minElevation) / elevRange, 0.0, 1.0);
         pos.setZ(idx, normZ * verticalExaggeration);
       }
     }
@@ -492,3 +493,4 @@ function animate() {
   renderer.render(scene, camera);
 }
 animate();
+
