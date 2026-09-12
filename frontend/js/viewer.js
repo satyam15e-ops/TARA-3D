@@ -395,30 +395,55 @@ if (helipadBtn) {
 
     if (isActive && rawGridMatrix) {
       const pos = geometry.attributes.position;
-      const step = 16;
+      const step = 20; // Coarser sampling to prevent overlapping ring clusters
+      const minRoofClearance = minElevation + (maxElevation - minElevation) * 0.45;
+
       for (let r = step; r < GRID_SIZE - step; r += step) {
         for (let c = step; c < GRID_SIZE - step; c += step) {
           const idx = r * GRID_SIZE + c;
           const z = pos.getZ(idx);
           const elev = minElevation + (z / verticalExaggeration) * (maxElevation - minElevation);
-          // Prominence & local planar threshold for true landing zone clearance
-          const zLeft = pos.getZ(Math.max(0, idx - 1));
-          const zRight = pos.getZ(Math.min(pos.count - 1, idx + 1));
-          const isFlat = Math.abs(zLeft - z) < 0.18 && Math.abs(zRight - z) < 0.18;
 
-          if (elev > minElevation + 18.0 && isFlat) {
-            const markerGeo = new THREE.RingGeometry(0.8, 1.15, 24);
-            const markerMat = new THREE.MeshBasicMaterial({ color: 0x10b981, side: THREE.DoubleSide });
-            const ring = new THREE.Mesh(markerGeo, markerMat);
-            ring.rotation.x = -Math.PI / 2;
-            ring.position.set(pos.getX(idx), pos.getY(idx), z + 0.35);
-            scene.add(ring);
-            helipadMarkers.push(ring);
+          // Check surrounding 4-neighbor local flatness
+          const zNorth = pos.getZ((r - 2) * GRID_SIZE + c);
+          const zSouth = pos.getZ((r + 2) * GRID_SIZE + c);
+          const zWest  = pos.getZ(r * GRID_SIZE + (c - 2));
+          const zEast  = pos.getZ(r * GRID_SIZE + (c + 2));
+
+          const maxSlopeDelta = Math.max(
+            Math.abs(z - zNorth),
+            Math.abs(z - zSouth),
+            Math.abs(z - zWest),
+            Math.abs(z - zEast)
+          );
+
+          // Only select flat structural rooftops with low slope deviation
+          if (elev > minRoofClearance && maxSlopeDelta < 0.22) {
+            const group = new THREE.Group();
+
+            // Outer landing zone circle
+            const ringGeo = new THREE.RingGeometry(0.85, 1.1, 32);
+            const ringMat = new THREE.MeshBasicMaterial({ color: 0x10b981, side: THREE.DoubleSide });
+            const ring = new THREE.Mesh(ringGeo, ringMat);
+
+            // Inner crosshair "H" dot
+            const centerGeo = new THREE.CircleGeometry(0.25, 16);
+            const centerMat = new THREE.MeshBasicMaterial({ color: 0x34d399, side: THREE.DoubleSide });
+            const dot = new THREE.Mesh(centerGeo, centerMat);
+
+            group.add(ring);
+            group.add(dot);
+
+            // Keep flat in plane with the terrain (+0.12m offset to prevent Z-fighting)
+            group.position.set(pos.getX(idx), pos.getY(idx), z + 0.12);
+            scene.add(group);
+            helipadMarkers.push(group);
           }
         }
       }
     }
   });
+}
 }
 
 // Measurement & Transects
@@ -638,4 +663,5 @@ function animate() {
   renderer.render(scene, camera);
 }
 animate();
+
 
