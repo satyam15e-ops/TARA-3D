@@ -1,22 +1,16 @@
 ﻿version: '3.8'
 
 services:
-  backend:
+  tara3d-geodetic-engine:
     build: .
-    container_name: tara3d-backend
+    container_name: tara3d_mission_node
     ports:
       - "8000:8000"
+      - "8080:8080"
     volumes:
       - ./outputs:/app/outputs
-    restart: unless-stopped
-
-  frontend:
-    image: nginx:alpine
-    container_name: tara3d-frontend
-    ports:
-      - "8080:80"
-    volumes:
-      - ./frontend:/usr/share/nginx/html:ro
-    depends_on:
-      - backend
+      - ./weights:/app/weights
+    environment:
+      - HF_HUB_OFFLINE=1
+      - PYTHONUNBUFFERED=1
     restart: unless-stopped

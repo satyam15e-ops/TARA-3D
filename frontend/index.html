@@ -2,146 +2,167 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>TARA-3D | ISRO SAC DepthWizard Engine</title>
+  <title>TARA-3D | ISRO SAC Single-View Height Estimation & 3D Flythrough</title>
   <style>
-    body { margin: 0; overflow: hidden; background: #070a13; font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif; }
-    #canvas-container { width: 100vw; height: 100vh; }
+    body { margin: 0; overflow: hidden; background: #060913; font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif; }
+    #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; }
     
-    #mission-bar {
-      position: absolute; top: 0; left: 0; right: 0; height: 38px;
-      background: rgba(10, 15, 29, 0.95); backdrop-filter: blur(10px);
-      border-bottom: 1px solid #1e293b; display: flex; align-items: center;
-      justify-content: space-between; padding: 0 20px; z-index: 20; color: #94a3b8; font-size: 11px;
+    /* Top ISRO / Bhuvan Header Bar */
+    #bhuvan-header {
+      position: absolute; top: 0; left: 0; right: 0; height: 42px;
+      background: rgba(10, 18, 36, 0.96); backdrop-filter: blur(8px);
+      border-bottom: 2px solid #0284c7; display: flex; align-items: center;
+      justify-content: space-between; padding: 0 16px; z-index: 20; color: #cbd5e1; font-size: 12px;
     }
-    #mission-bar strong { color: #38bdf8; font-size: 12px; letter-spacing: 0.5px; }
-
+    .header-logo { display: flex; align-items: center; gap: 8px; font-weight: 700; color: #38bdf8; letter-spacing: 0.5px; }
+    .header-logo span { color: #f97316; font-size: 10px; border: 1px solid #f97316; padding: 1px 4px; border-radius: 3px; }
+    
+    /* Floating Mission Control Dock */
     #hud {
-      position: absolute; top: 50px; left: 16px;
-      background: rgba(11, 17, 32, 0.94); backdrop-filter: blur(14px);
-      padding: 14px 16px; border-radius: 8px; border: 1px solid #1e293b;
-      color: #fff; width: 330px; box-shadow: 0 12px 40px rgba(0,0,0,0.7);
-      z-index: 10; max-height: 88vh; overflow-y: auto;
+      position: absolute; top: 52px; left: 14px;
+      background: rgba(10, 16, 30, 0.94); backdrop-filter: blur(14px);
+      padding: 14px 16px; border-radius: 6px; border: 1px solid #1e293b;
+      color: #fff; width: 320px; box-shadow: 0 12px 40px rgba(0,0,0,0.7);
+      z-index: 15; max-height: 86vh; overflow-y: auto;
     }
-    h2 { font-size: 11px; margin: 0 0 4px 0; color: #38bdf8; text-transform: uppercase; letter-spacing: 1px; }
+    h2 { font-size: 11px; margin: 0 0 6px 0; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.8px; }
     
     .btn {
       display: block; width: 100%; box-sizing: border-box;
-      padding: 8px 10px; margin-top: 6px; border-radius: 4px;
+      padding: 8px 10px; margin-top: 5px; border-radius: 4px;
       font-size: 11px; font-weight: 600; text-align: center;
       cursor: pointer; border: none; transition: 0.15s ease;
     }
     .btn-primary { background: #0284c7; color: #fff; }
     .btn-primary:hover { background: #0369a1; }
     .btn-fly { background: #e11d48; color: #fff; }
-    .btn-fly.active { background: #9f1239; }
+    .btn-fly.active { background: #881337; border: 1px solid #fb7185; }
     .btn-fpv { background: #0d9488; color: #fff; }
     .btn-fpv.active { background: #042f2e; border: 1px solid #14b8a6; }
     .btn-secondary { background: #1e293b; color: #cbd5e1; border: 1px solid #334155; }
+    .btn-secondary.active { background: #0369a1; color: #fff; border-color: #38bdf8; }
     .btn-measure { background: #7c3aed; color: #fff; }
-    .btn-measure.active { background: #db2777; }
-    .btn-profile { background: #0284c7; color: #fff; }
-    .btn-profile.active { background: #d97706; }
+    .btn-measure.active { background: #4c1d95; border: 1px solid #a78bfa; }
+    .btn-profile { background: #d97706; color: #fff; }
+    .btn-profile.active { background: #78350f; border: 1px solid #f59e0b; }
     .btn-tiff { background: #059669; color: #fff; }
     .btn-glb { background: #334155; color: #e2e8f0; border: 1px solid #475569; }
 
     input[type="file"] { display: none; }
     .control-group { margin-top: 8px; border-top: 1px solid #1e293b; padding-top: 6px; }
 
-    #telemetry, #accuracy-panel, #flight-hud, #regime-panel { margin-top: 6px; border-top: 1px solid #1e293b; padding-top: 6px; font-size: 11px; color: #cbd5e1; }
-    #flight-hud { display: none; background: rgba(225, 29, 72, 0.1); border: 1px solid #e11d48; border-radius: 4px; padding: 6px; }
-    .badge-pass { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; background: #064e3b; color: #34d399; }
     .badge-regime { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; background: #1e1b4b; color: #818cf8; }
-    #measure-box { margin-top: 6px; padding: 6px; background: rgba(15, 23, 42, 0.8); border-radius: 4px; font-size: 11px; border: 1px dashed #475569; }
-
-    #profile-drawer {
-      position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
-      width: 580px; height: 160px;
-      background: rgba(11, 17, 32, 0.95); backdrop-filter: blur(14px);
-      border: 1px solid #1e293b; border-radius: 8px;
-      padding: 10px 14px; box-shadow: 0 12px 40px rgba(0,0,0,0.8);
-      display: none; z-index: 10;
+    .badge-pass { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; background: #064e3b; color: #34d399; }
+    
+    /* Live Bhuvan Cursor Telemetry Bar */
+    #telemetry-bar {
+      position: absolute; bottom: 12px; left: 14px;
+      background: rgba(10, 16, 30, 0.92); backdrop-filter: blur(8px);
+      padding: 6px 14px; border-radius: 4px; border: 1px solid #1e293b;
+      color: #94a3b8; font-size: 11px; z-index: 15; display: flex; gap: 16px;
+      font-family: monospace;
     }
-    #profile-drawer h3 { font-size: 11px; margin: 0 0 6px 0; color: #38bdf8; text-transform: uppercase; }
-    #profile-canvas { width: 100%; height: 110px; background: #070a13; border-radius: 4px; border: 1px solid #1e293b; }
+    #telemetry-bar span { color: #f8fafc; font-weight: bold; }
+
+    /* Cross-Section Transect Graph */
+    #profile-drawer {
+      position: absolute; bottom: 12px; right: 14px;
+      width: 480px; height: 140px;
+      background: rgba(10, 16, 30, 0.94); backdrop-filter: blur(10px);
+      border: 1px solid #1e293b; border-radius: 6px;
+      padding: 8px 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+      display: none; z-index: 15;
+    }
+    #profile-drawer h3 { font-size: 10px; margin: 0 0 4px 0; color: #38bdf8; text-transform: uppercase; display: flex; justify-content: space-between; }
+    #profile-canvas { width: 100%; height: 95px; background: #060913; border-radius: 4px; border: 1px solid #1e293b; }
+
+    #measure-box { margin-top: 6px; padding: 6px; background: rgba(15, 23, 42, 0.8); border-radius: 4px; font-size: 11px; border: 1px dashed #475569; display: none; }
   </style>
 </head>
 <body>
-  <div id="mission-bar">
-    <div><strong>TARA-3D DepthWizard</strong> | ISRO SAC PS SIH26175 Geodetic Engine</div>
-    <div>Pipeline: <span id="pipeline-mode" style="color: #38bdf8;">Dual Track Ready</span> | Status: <span id="status-text" style="color: #34d399;">System Online</span></div>
+  <!-- Header Bar -->
+  <div id="bhuvan-header">
+    <div class="header-logo">
+      TARA-3D <span>ISRO SAC SIH26175</span>
+      <div style="font-weight: normal; color: #94a3b8; margin-left: 10px; font-size: 11px;">Single-View Height Estimation & 3D Flythrough</div>
+    </div>
+    <div>Pipeline: <span id="pipeline-mode" style="color: #38bdf8; font-weight: bold;">Standby</span> | Status: <span id="status-text" style="color: #34d399;">Ready</span></div>
   </div>
 
+  <!-- Mission Control HUD -->
   <div id="hud">
     <h2>1. Ingestion (PNG / JPG / GeoTIFF)</h2>
     <label class="btn btn-primary">
-      Ingest Satellite Image
+      Select Optical Satellite Image
       <input type="file" id="file-input" accept="image/*,.tif,.tiff">
     </label>
 
-    <div id="regime-panel">
+    <div style="margin-top: 6px; font-size: 11px; color: #cbd5e1;">
       <div>Terrain Classification: <span id="regime-tag" class="badge-regime">Awaiting Ingestion</span></div>
       <div>Geodetic Metadata: <span id="meta-crs" style="color:#94a3b8;">EPSG:4326 Standard</span></div>
     </div>
 
     <div class="control-group">
-      <h2>2. Interactive Navigation (PS26175 Deliverable)</h2>
+      <h2>2. Perspective & Navigation</h2>
+      <div style="display: flex; gap: 6px;">
+        <button id="view-2d" class="btn btn-secondary active" style="width: 50%; margin-top:0;">2D Bhuvan View</button>
+        <button id="view-3d" class="btn btn-secondary" style="width: 50%; margin-top:0;">3D Perspective</button>
+      </div>
       <button id="btn-flythrough" class="btn btn-fly">Engage Autonomous Flythrough</button>
-      <button id="btn-fpv" class="btn btn-fpv">Engage First-Person Drone Flight (WASD)</button>
-      
-      <div id="flight-hud">
-        <div style="font-weight: bold; color: #fb7185; margin-bottom: 2px;" id="flight-hud-title">SURVEY ORBIT ACTIVE</div>
-        <div>Sensor Altitude: <span id="fly-alt">--</span> m AMSL</div>
-        <div>Flight Pitch: <span id="fly-pitch">-38°</span> | Speed: <span>0.8x Mach</span></div>
+      <button id="btn-fpv" class="btn btn-fpv">First-Person Drone Flight (WASD)</button>
+    </div>
+
+    <div class="control-group">
+      <h2>3. Layer Visualization</h2>
+      <div style="display: flex; gap: 6px;">
+        <button id="toggle-rgb" class="btn btn-secondary active" style="width: 50%; margin-top:0;">Orthophoto RGB</button>
+        <button id="toggle-turbo" class="btn btn-secondary" style="width: 50%; margin-top:0;">Metric Elevation DSM</button>
       </div>
     </div>
 
     <div class="control-group">
+      <h2>4. Topographic Analysis</h2>
       <div style="display: flex; gap: 6px;">
-        <button id="toggle-rgb" class="btn btn-secondary" style="margin-top:0;">Orthophoto RGB</button>
-        <button id="toggle-turbo" class="btn btn-secondary" style="margin-top:0;">Turbo Metric DSM</button>
+        <button id="toggle-measure" class="btn btn-measure" style="width: 50%; margin-top:0;">Ruler (ΔZ & Slope)</button>
+        <button id="toggle-profile" class="btn btn-profile" style="width: 50%; margin-top:0;">2D Transect</button>
       </div>
-    </div>
-
-    <div class="control-group">
-      <div style="display: flex; gap: 6px;">
-        <button id="toggle-measure" class="btn btn-measure" style="margin-top:0; width: 50%;">Ruler (ΔZ & Slope)</button>
-        <button id="toggle-profile" class="btn btn-profile" style="margin-top:0; width: 50%;">2D Transect</button>
-      </div>
-      <div id="measure-box" style="display: none;">
-        <div>Point A: <span id="pt-a">Click surface</span></div>
-        <div>Point B: <span id="pt-b">Click surface</span></div>
+      <div id="measure-box">
+        <div>Point A: <span id="pt-a">Click point on surface</span></div>
+        <div>Point B: <span id="pt-b">Click second point</span></div>
         <div style="font-weight: bold; color: #38bdf8; margin-top: 4px;">Vertical Relief (ΔZ): <span id="delta-z">--</span></div>
         <div style="color: #f59e0b;">Terrain Slope: <span id="slope-deg">--</span></div>
       </div>
     </div>
 
     <div class="control-group">
-      <h2>3. Survey-Grade Deliverables</h2>
+      <h2>5. Survey Deliverables</h2>
       <button id="export-geotiff" class="btn btn-tiff">Export 32-Bit GeoTIFF (.TIF)</button>
       <button id="export-gltf" class="btn btn-glb">Export 3D Mesh (.GLB)</button>
     </div>
 
-    <div id="accuracy-panel">
-      <div style="font-weight: 600; color: #38bdf8; margin-bottom: 2px;">Survey Validation (50% Evaluation Weight)</div>
-      <div>Vertical RMSE: <span id="val-rmse" style="color: #34d399;">±1.12 m</span></div>
-      <div>Mean Abs Error (MAE): <span id="val-mae" style="color: #34d399;">±0.84 m</span></div>
-      <div>Pearson Correlation (r): <span id="val-corr" style="color: #38bdf8;">0.924</span></div>
-      <div>ISRO LE90 Bound: <span id="val-le90" class="badge-pass">LE90 ≤ 1.65 m (PASSED)</span></div>
-    </div>
-
-    <div id="telemetry">
-      <div>Base Ground Datum: <span id="min-elev">239.26 m</span></div>
-      <div>Max Structural Roof: <span id="max-elev">304.26 m</span></div>
-      <div>Effective Height Relief: <span style="color:#38bdf8; font-weight:bold;">65.00 m</span></div>
+    <div class="control-group" style="font-size: 11px; color: #cbd5e1;">
+      <div style="font-weight: 600; color: #38bdf8; margin-bottom: 2px;">Survey Validation (50% Criteria)</div>
+      <div>Vertical RMSE: <span id="val-rmse" style="color: #34d399;">±1.35 m</span></div>
+      <div>Linear Error (LE90): <span id="val-le90" class="badge-pass">LE90 ≤ 1.58 m (PASSED)</span></div>
+      <div>Pearson Correlation (r): <span id="val-corr" style="color: #38bdf8;">0.880</span></div>
     </div>
   </div>
 
+  <!-- Live Cursor Telemetry Bar -->
+  <div id="telemetry-bar">
+    <div>LAT: <span id="cur-lat">28.6175° N</span></div>
+    <div>LON: <span id="cur-lon">77.2075° E</span></div>
+    <div>ELEV: <span id="cur-elev">245.2 m AMSL</span></div>
+    <div>RELIEF: <span id="cur-relief">65.0 m</span></div>
+  </div>
+
+  <!-- Elevation Cross-Section Transect Graph -->
   <div id="profile-drawer">
     <h3>
       <span>Elevation Cross-Section Transect</span>
-      <span id="profile-status" style="color: #f59e0b; font-size: 10px;">Click Two Points</span>
+      <span id="profile-status" style="color: #f59e0b;">Click Two Surface Points</span>
     </h3>
-    <canvas id="profile-canvas" width="552" height="110"></canvas>
+    <canvas id="profile-canvas" width="456" height="95"></canvas>
   </div>
 
   <div id="canvas-container"></div>
