@@ -3,16 +3,16 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x060913);
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 3000);
-camera.position.set(0, -36, 26);
+camera.position.set(0, -38, 24);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+container.innerHTML = "";
 container.appendChild(renderer.domElement);
 
 const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
-// OrbitControls for standard 2D/3D map analysis
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
@@ -20,9 +20,8 @@ controls.screenSpacePanning = true;
 controls.maxPolarAngle = Math.PI / 2 + 0.05;
 controls.minDistance = 4;
 controls.maxDistance = 250;
-controls.target.set(0, 0, 0);
+controls.target.set(0, 0, 1.5);
 
-// Lighting
 const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
 dirLight.position.set(30, -50, 45);
 scene.add(dirLight);
@@ -91,29 +90,31 @@ function smoothTransitionTo(camPos, lookAtPos) {
 const view2dBtn = document.getElementById('view-2d');
 const view3dBtn = document.getElementById('view-3d');
 
-view2dBtn.addEventListener('click', () => {
-  view2dBtn.classList.add('active');
-  view3dBtn.classList.remove('active');
-  isFlying = false;
-  exitFpvMode();
-  smoothTransitionTo(new THREE.Vector3(0, 0.01, 65), new THREE.Vector3(0, 0, 0));
-});
+if (view2dBtn) {
+  view2dBtn.addEventListener('click', () => {
+    view2dBtn.classList.add('active');
+    view3dBtn.classList.remove('active');
+    isFlying = false;
+    exitFpvMode();
+    smoothTransitionTo(new THREE.Vector3(0, 0.01, 65), new THREE.Vector3(0, 0, 0));
+  });
+}
 
-view3dBtn.addEventListener('click', () => {
-  view3dBtn.classList.add('active');
-  view2dBtn.classList.remove('active');
-  isFlying = false;
-  exitFpvMode();
-  smoothTransitionTo(new THREE.Vector3(0, -38, 24), new THREE.Vector3(0, 0, 1.5));
-});
+if (view3dBtn) {
+  view3dBtn.addEventListener('click', () => {
+    view3dBtn.classList.add('active');
+    view2dBtn.classList.remove('active');
+    isFlying = false;
+    exitFpvMode();
+    smoothTransitionTo(new THREE.Vector3(0, -38, 24), new THREE.Vector3(0, 0, 1.5));
+  });
+}
 
-// Autonomous Flythrough & True FPS Drone Flight
+// Navigation & FPV
 let isFlying = false;
 let isFpv = false;
 let flightClock = 0;
 const keysPressed = {};
-
-// Euler angles for FPS Drone Look
 const euler = new THREE.Euler(0, 0, 0, 'YXZ');
 const PI_2 = Math.PI / 2;
 
@@ -123,51 +124,55 @@ const fpvBtn = document.getElementById('btn-fpv');
 function exitFpvMode() {
   if (isFpv) {
     isFpv = false;
-    fpvBtn.classList.remove('active');
-    fpvBtn.textContent = "First-Person Drone Flight (WASD)";
-    document.exitPointerLock?.();
+    if (fpvBtn) {
+      fpvBtn.classList.remove('active');
+      fpvBtn.textContent = "First-Person Drone Flight (WASD)";
+    }
+    if (document.exitPointerLock) document.exitPointerLock();
     controls.enabled = true;
   }
 }
 
-flightBtn.addEventListener('click', () => {
-  isFlying = !isFlying;
-  if (isFlying) {
-    exitFpvMode();
-    view3dBtn.classList.add('active');
-    view2dBtn.classList.remove('active');
-  }
-  flightBtn.classList.toggle('active', isFlying);
-  flightBtn.textContent = isFlying ? "Abort Flythrough" : "Engage Autonomous Flythrough";
-  controls.enabled = !isFlying;
-});
+if (flightBtn) {
+  flightBtn.addEventListener('click', () => {
+    isFlying = !isFlying;
+    if (isFlying) {
+      exitFpvMode();
+      view3dBtn.classList.add('active');
+      view2dBtn.classList.remove('active');
+    }
+    flightBtn.classList.toggle('active', isFlying);
+    flightBtn.textContent = isFlying ? "Abort Flythrough" : "Engage Autonomous Flythrough";
+    controls.enabled = !isFlying;
+  });
+}
 
-fpvBtn.addEventListener('click', () => {
-  isFpv = !isFpv;
-  if (isFpv) {
-    isFlying = false;
-    flightBtn.classList.remove('active');
-    flightBtn.textContent = "Engage Autonomous Flythrough";
-    view3dBtn.classList.add('active');
-    view2dBtn.classList.remove('active');
-    
-    fpvBtn.classList.add('active');
-    fpvBtn.textContent = "Click Screen to Steer Drone (ESC to Exit)";
-    controls.enabled = false;
-    
-    // Request pointer lock when canvas is clicked
-    renderer.domElement.requestPointerLock();
-  } else {
-    exitFpvMode();
-  }
-});
+if (fpvBtn) {
+  fpvBtn.addEventListener('click', () => {
+    isFpv = !isFpv;
+    if (isFpv) {
+      isFlying = false;
+      if (flightBtn) {
+        flightBtn.classList.remove('active');
+        flightBtn.textContent = "Engage Autonomous Flythrough";
+      }
+      view3dBtn.classList.add('active');
+      view2dBtn.classList.remove('active');
+      fpvBtn.classList.add('active');
+      fpvBtn.textContent = "Click Map to Steer (ESC to Exit)";
+      controls.enabled = false;
+      renderer.domElement.requestPointerLock();
+    } else {
+      exitFpvMode();
+    }
+  });
+}
 
-// Pointer Lock Event Listeners
 document.addEventListener('pointerlockchange', () => {
   if (document.pointerLockElement === renderer.domElement) {
-    fpvBtn.textContent = "Drone Active (WASD + Mouse | ESC to Exit)";
+    if (fpvBtn) fpvBtn.textContent = "Drone Active (WASD + Mouse | ESC to Exit)";
   } else if (isFpv) {
-    fpvBtn.textContent = "Drone Paused: Click Map to Resume";
+    if (fpvBtn) fpvBtn.textContent = "Drone Paused: Click Map to Resume";
   }
 });
 
@@ -181,7 +186,6 @@ document.addEventListener('mousemove', (event) => {
   if (isFpv && document.pointerLockElement === renderer.domElement) {
     const movementX = event.movementX || 0;
     const movementY = event.movementY || 0;
-
     euler.setFromQuaternion(camera.quaternion);
     euler.y -= movementX * 0.0025;
     euler.x -= movementY * 0.0025;
@@ -193,7 +197,7 @@ document.addEventListener('mousemove', (event) => {
 window.addEventListener('keydown', (e) => { keysPressed[e.key.toLowerCase()] = true; });
 window.addEventListener('keyup', (e) => { keysPressed[e.key.toLowerCase()] = false; });
 
-// Raycasting & Telemetry
+// Raycasting Telemetry
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
@@ -216,109 +220,118 @@ window.addEventListener('mousemove', (e) => {
     const elevRatio = Math.max(0, Math.min(1, pt.z / verticalExaggeration));
     const elev = (minElevation + elevRatio * (maxElevation - minElevation)).toFixed(1);
 
-    document.getElementById('cur-lat').textContent = `${lat}° N`;
-    document.getElementById('cur-lon').textContent = `${lon}° E`;
-    document.getElementById('cur-elev').textContent = `${elev} m AMSL`;
+    const curLat = document.getElementById('cur-lat');
+    const curLon = document.getElementById('cur-lon');
+    const curElev = document.getElementById('cur-elev');
+    if (curLat) curLat.textContent = `${lat}° N`;
+    if (curLon) curLon.textContent = `${lon}° E`;
+    if (curElev) curElev.textContent = `${elev} m AMSL`;
   }
 });
 
-// Ingestion Pipeline
-document.getElementById('file-input').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+// File Ingestion Pipeline
+const fileInput = document.getElementById('file-input');
+if (fileInput) {
+  fileInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
 
-  const statusText = document.getElementById('status-text');
-  statusText.textContent = "Anchoring & Calibrating Terrain...";
-  statusText.style.color = "#facc15";
+    const statusText = document.getElementById('status-text');
+    statusText.textContent = "Anchoring & Calibrating Terrain...";
+    statusText.style.color = "#facc15";
 
-  const formData = new FormData();
-  formData.append('file', file);
+    const formData = new FormData();
+    formData.append('file', file);
 
-  try {
-    const res = await fetch('/api/reconstruct', { method: 'POST', body: formData });
-    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
-    const data = await res.json();
-
-    document.getElementById('pipeline-mode').textContent = data.pipeline_mode;
-    document.getElementById('regime-tag').textContent = data.terrain_regime.replace('_', ' ');
-    document.getElementById('meta-crs').textContent = data.crs;
-
-    minElevation = data.elevation_min_m;
-    maxElevation = data.elevation_max_m;
-    currentBounds = data.bounds || currentBounds;
-    document.getElementById('cur-relief').textContent = `${(maxElevation - minElevation).toFixed(1)} m`;
-
-    if (data.accuracy) {
-      document.getElementById('val-rmse').textContent = `±${data.accuracy.rmse_m} m`;
-      document.getElementById('val-corr').textContent = `${data.accuracy.pearson_r}`;
-      document.getElementById('val-le90').textContent = `LE90 ≤ ${data.accuracy.le90_m} m (PASSED)`;
-    }
-
-    GRID_SIZE = data.grid_resolution || 256;
-    scene.remove(terrainMesh);
-    geometry = new THREE.PlaneGeometry(50, 50, GRID_SIZE - 1, GRID_SIZE - 1);
-    terrainMesh = new THREE.Mesh(geometry, material);
-    scene.add(terrainMesh);
-
-    const pos = geometry.attributes.position;
-    rawGridMatrix = data.elevation_grid;
-    const elevRange = maxElevation - minElevation || 1.0;
-
-    for (let r = 0; r < GRID_SIZE; r++) {
-      for (let c = 0; c < GRID_SIZE; c++) {
-        const idx = r * GRID_SIZE + c;
-        const isBorder = (r === 0 || r === GRID_SIZE - 1 || c === 0 || c === GRID_SIZE - 1);
-        const rawZ = rawGridMatrix[r][c];
-        const normZ = isBorder ? 0.0 : THREE.MathUtils.clamp((rawZ - minElevation) / elevRange, 0.0, 1.0);
-        pos.setZ(idx, normZ * verticalExaggeration);
+    try {
+      const res = await fetch('/api/reconstruct', { method: 'POST', body: formData });
+      if (!res.ok) {
+        const errPayload = await res.json().catch(() => ({}));
+        throw new Error(errPayload.message || `Server HTTP ${res.status}`);
       }
-    }
-    pos.needsUpdate = true;
-    geometry.computeVertexNormals();
+      const data = await res.json();
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        rgbTexture = new THREE.Texture(img);
-        rgbTexture.generateMipmaps = true;
-        rgbTexture.minFilter = THREE.LinearMipmapLinearFilter;
-        rgbTexture.magFilter = THREE.LinearFilter;
-        rgbTexture.anisotropy = maxAniso;
-        rgbTexture.needsUpdate = true;
-        
-        terrainMesh.material.map = rgbTexture;
-        terrainMesh.material.needsUpdate = true;
+      document.getElementById('pipeline-mode').textContent = data.pipeline_mode;
+      document.getElementById('regime-tag').textContent = data.terrain_regime.replace('_', ' ');
+      document.getElementById('meta-crs').textContent = data.crs;
 
-        const turboImg = new Image();
-        turboImg.crossOrigin = "anonymous";
-        turboImg.onload = () => {
-          turboTexture = new THREE.Texture(turboImg);
-          turboTexture.generateMipmaps = true;
-          turboTexture.minFilter = THREE.LinearMipmapLinearFilter;
-          turboTexture.magFilter = THREE.LinearFilter;
-          turboTexture.anisotropy = maxAniso;
-          turboTexture.needsUpdate = true;
+      minElevation = data.elevation_min_m;
+      maxElevation = data.elevation_max_m;
+      currentBounds = data.bounds || currentBounds;
+      document.getElementById('cur-relief').textContent = `${(maxElevation - minElevation).toFixed(1)} m`;
+
+      if (data.accuracy) {
+        document.getElementById('val-rmse').textContent = `±${data.accuracy.rmse_m} m`;
+        document.getElementById('val-corr').textContent = `${data.accuracy.pearson_r}`;
+        document.getElementById('val-le90').textContent = `LE90 ≤ ${data.accuracy.le90_m} m (PASSED)`;
+      }
+
+      GRID_SIZE = data.grid_resolution || 256;
+      scene.remove(terrainMesh);
+      geometry = new THREE.PlaneGeometry(50, 50, GRID_SIZE - 1, GRID_SIZE - 1);
+      terrainMesh = new THREE.Mesh(geometry, material);
+      scene.add(terrainMesh);
+
+      const pos = geometry.attributes.position;
+      rawGridMatrix = data.elevation_grid;
+      const elevRange = maxElevation - minElevation || 1.0;
+
+      for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+          const idx = r * GRID_SIZE + c;
+          const isBorder = (r === 0 || r === GRID_SIZE - 1 || c === 0 || c === GRID_SIZE - 1);
+          const rawZ = rawGridMatrix[r][c];
+          const normZ = isBorder ? 0.0 : THREE.MathUtils.clamp((rawZ - minElevation) / elevRange, 0.0, 1.0);
+          pos.setZ(idx, normZ * verticalExaggeration);
+        }
+      }
+      pos.needsUpdate = true;
+      geometry.computeVertexNormals();
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          rgbTexture = new THREE.Texture(img);
+          rgbTexture.generateMipmaps = true;
+          rgbTexture.minFilter = THREE.LinearMipmapLinearFilter;
+          rgbTexture.magFilter = THREE.LinearFilter;
+          rgbTexture.anisotropy = maxAniso;
+          rgbTexture.needsUpdate = true;
+          
+          terrainMesh.material.map = rgbTexture;
+          terrainMesh.material.needsUpdate = true;
+
+          const turboImg = new Image();
+          turboImg.crossOrigin = "anonymous";
+          turboImg.onload = () => {
+            turboTexture = new THREE.Texture(turboImg);
+            turboTexture.generateMipmaps = true;
+            turboTexture.minFilter = THREE.LinearMipmapLinearFilter;
+            turboTexture.magFilter = THREE.LinearFilter;
+            turboTexture.anisotropy = maxAniso;
+            turboTexture.needsUpdate = true;
+          };
+          turboImg.src = data.heatmap_url + '?t=' + new Date().getTime();
+
+          statusText.textContent = "Operational (60 FPS)";
+          statusText.style.color = "#34d399";
+          view3dBtn.click();
         };
-        turboImg.src = data.heatmap_url + '?t=' + new Date().getTime();
-
-        statusText.textContent = "Operational (60 FPS)";
-        statusText.style.color = "#34d399";
-        view3dBtn.click();
+        img.src = event.target.result;
       };
-      img.src = event.target.result;
-    };
-    reader.readAsDataURL(file);
+      reader.readAsDataURL(file);
 
-  } catch (err) {
-    statusText.textContent = "Pipeline Error";
-    statusText.style.color = "#f87171";
-    console.error(err);
-  }
-});
+    } catch (err) {
+      statusText.textContent = "Pipeline Error";
+      statusText.style.color = "#f87171";
+      console.error("Reconstruction Failure:", err);
+    }
+  });
+}
 
 // Layer Toggles
-document.getElementById('toggle-rgb').addEventListener('click', () => {
+document.getElementById('toggle-rgb')?.addEventListener('click', () => {
   if (rgbTexture) {
     terrainMesh.material.map = rgbTexture;
     terrainMesh.material.needsUpdate = true;
@@ -327,7 +340,7 @@ document.getElementById('toggle-rgb').addEventListener('click', () => {
   }
 });
 
-document.getElementById('toggle-turbo').addEventListener('click', () => {
+document.getElementById('toggle-turbo')?.addEventListener('click', () => {
   if (turboTexture) {
     terrainMesh.material.map = turboTexture;
     terrainMesh.material.needsUpdate = true;
@@ -336,7 +349,79 @@ document.getElementById('toggle-turbo').addEventListener('click', () => {
   }
 });
 
-// Ruler & Transects
+// Disaster Triage Tools
+let floodMesh = null;
+let isFloodSimActive = false;
+const floodBtn = document.getElementById('btn-flood-sim');
+
+if (floodBtn) {
+  floodBtn.addEventListener('click', () => {
+    isFloodSimActive = !isFloodSimActive;
+    floodBtn.classList.toggle('active', isFloodSimActive);
+    floodBtn.textContent = isFloodSimActive ? "Drain Floodwater" : "Simulate Flood (+5m)";
+
+    if (isFloodSimActive) {
+      if (!floodMesh) {
+        const waterGeo = new THREE.PlaneGeometry(52, 52);
+        const waterMat = new THREE.MeshStandardMaterial({
+          color: 0x0284c7,
+          transparent: true,
+          opacity: 0.65,
+          roughness: 0.1,
+          metalness: 0.8
+        });
+        floodMesh = new THREE.Mesh(waterGeo, waterMat);
+        scene.add(floodMesh);
+      }
+      const waterHeightNorm = (5.0 / (maxElevation - minElevation || 1.0)) * verticalExaggeration;
+      floodMesh.position.set(0, 0, waterHeightNorm);
+      floodMesh.visible = true;
+    } else if (floodMesh) {
+      floodMesh.visible = false;
+    }
+  });
+}
+
+const helipadBtn = document.getElementById('btn-helipad-zones');
+let helipadMarkers = [];
+
+if (helipadBtn) {
+  helipadBtn.addEventListener('click', () => {
+    const isActive = helipadBtn.classList.toggle('active');
+    helipadBtn.textContent = isActive ? "Clear Helipads" : "Detect Helipads";
+
+    helipadMarkers.forEach(m => scene.remove(m));
+    helipadMarkers = [];
+
+    if (isActive && rawGridMatrix) {
+      const pos = geometry.attributes.position;
+      const step = 16;
+      for (let r = step; r < GRID_SIZE - step; r += step) {
+        for (let c = step; c < GRID_SIZE - step; c += step) {
+          const idx = r * GRID_SIZE + c;
+          const z = pos.getZ(idx);
+          const elev = minElevation + (z / verticalExaggeration) * (maxElevation - minElevation);
+          // Prominence & local planar threshold for true landing zone clearance
+          const zLeft = pos.getZ(Math.max(0, idx - 1));
+          const zRight = pos.getZ(Math.min(pos.count - 1, idx + 1));
+          const isFlat = Math.abs(zLeft - z) < 0.18 && Math.abs(zRight - z) < 0.18;
+
+          if (elev > minElevation + 18.0 && isFlat) {
+            const markerGeo = new THREE.RingGeometry(0.8, 1.15, 24);
+            const markerMat = new THREE.MeshBasicMaterial({ color: 0x10b981, side: THREE.DoubleSide });
+            const ring = new THREE.Mesh(markerGeo, markerMat);
+            ring.rotation.x = -Math.PI / 2;
+            ring.position.set(pos.getX(idx), pos.getY(idx), z + 0.35);
+            scene.add(ring);
+            helipadMarkers.push(ring);
+          }
+        }
+      }
+    }
+  });
+}
+
+// Measurement & Transects
 let activeTool = null;
 let clickPoints = [];
 const markers = [];
@@ -368,6 +453,7 @@ function drawTransect(p1, p2) {
 
 function renderProfileGraph(p1, p2) {
   const canvas = document.getElementById('profile-canvas');
+  if (!canvas) return;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -418,21 +504,21 @@ const profileBtn = document.getElementById('toggle-profile');
 const measureBox = document.getElementById('measure-box');
 const profileDrawer = document.getElementById('profile-drawer');
 
-measureBtn.addEventListener('click', () => {
+measureBtn?.addEventListener('click', () => {
   activeTool = (activeTool === 'measure') ? null : 'measure';
   measureBtn.classList.toggle('active', activeTool === 'measure');
-  profileBtn.classList.remove('active');
-  measureBox.style.display = activeTool === 'measure' ? 'block' : 'none';
-  profileDrawer.style.display = 'none';
+  profileBtn?.classList.remove('active');
+  if (measureBox) measureBox.style.display = activeTool === 'measure' ? 'block' : 'none';
+  if (profileDrawer) profileDrawer.style.display = 'none';
   clearMarkers();
 });
 
-profileBtn.addEventListener('click', () => {
+profileBtn?.addEventListener('click', () => {
   activeTool = (activeTool === 'profile') ? null : 'profile';
   profileBtn.classList.toggle('active', activeTool === 'profile');
-  measureBtn.classList.remove('active');
-  profileDrawer.style.display = activeTool === 'profile' ? 'block' : 'none';
-  measureBox.style.display = 'none';
+  measureBtn?.classList.remove('active');
+  if (profileDrawer) profileDrawer.style.display = activeTool === 'profile' ? 'block' : 'none';
+  if (measureBox) measureBox.style.display = 'none';
   clearMarkers();
 });
 
@@ -461,14 +547,11 @@ window.addEventListener('click', (e) => {
     if (activeTool === 'measure') {
       if (clickPoints.length === 1) {
         document.getElementById('pt-a').textContent = `${calcElev(pt.z).toFixed(1)} m`;
-        document.getElementById('pt-b').textContent = "Click rooftop/endpoint";
-        document.getElementById('delta-z').textContent = "--";
-        document.getElementById('slope-deg').textContent = "--";
+        document.getElementById('pt-b').textContent = "Click endpoint";
       } else if (clickPoints.length === 2) {
         const h1 = calcElev(clickPoints[0].z);
         const h2 = calcElev(clickPoints[1].z);
         document.getElementById('pt-b').textContent = `${h2.toFixed(1)} m`;
-        
         const deltaZ = Math.abs(h2 - h1);
         document.getElementById('delta-z').textContent = `${deltaZ.toFixed(1)} m`;
 
@@ -476,26 +559,26 @@ window.addEventListener('click', (e) => {
         const dy = (clickPoints[1].y - clickPoints[0].y) * 10;
         const horizDist = Math.sqrt(dx*dx + dy*dy) + 1e-6;
         const slopeAngle = (Math.atan(deltaZ / horizDist) * (180.0 / Math.PI)).toFixed(1);
-        document.getElementById('slope-deg').textContent = `${slopeAngle}° (${((deltaZ / horizDist)*100).toFixed(0)}% grade)`;
+        document.getElementById('slope-deg').textContent = `${slopeAngle}°`;
       }
     } else if (activeTool === 'profile') {
       if (clickPoints.length === 1) {
-        document.getElementById('profile-status').textContent = "Click Second Transect Point";
+        document.getElementById('profile-status').textContent = "Click Second Point";
       } else if (clickPoints.length === 2) {
         drawTransect(clickPoints[0], clickPoints[1]);
         renderProfileGraph(clickPoints[0], clickPoints[1]);
-        document.getElementById('profile-status').textContent = "Transect Profile Calculated";
+        document.getElementById('profile-status').textContent = "Transect Calculated";
       }
     }
   }
 });
 
 // Deliverables
-document.getElementById('export-geotiff').addEventListener('click', () => {
+document.getElementById('export-geotiff')?.addEventListener('click', () => {
   window.open('/api/download-geotiff', '_blank');
 });
 
-document.getElementById('export-gltf').addEventListener('click', () => {
+document.getElementById('export-gltf')?.addEventListener('click', () => {
   const exporter = new THREE.GLTFExporter();
   exporter.parse(
     terrainMesh,
@@ -503,7 +586,7 @@ document.getElementById('export-gltf').addEventListener('click', () => {
       const blob = new Blob([gltf], { type: 'application/octet-stream' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
-      link.download = 'TARA3D_Calibrated_Terrain.glb';
+      link.download = 'TARA3D_Terrain.glb';
       link.click();
     },
     { binary: true }
@@ -516,7 +599,7 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// Render Loop
+// Main Loop
 function animate() {
   requestAnimationFrame(animate);
 
@@ -535,7 +618,6 @@ function animate() {
     );
     camera.lookAt(0, 0, 2);
   } else if (isFpv) {
-    // True Drone Physics Movement
     const moveSpeed = 0.55;
     const forward = new THREE.Vector3();
     camera.getWorldDirection(forward);
@@ -556,3 +638,4 @@ function animate() {
   renderer.render(scene, camera);
 }
 animate();
+
