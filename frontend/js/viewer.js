@@ -12,6 +12,7 @@ container.appendChild(renderer.domElement);
 
 const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
+// OrbitControls for standard 2D/3D map analysis
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
@@ -21,7 +22,7 @@ controls.minDistance = 4;
 controls.maxDistance = 250;
 controls.target.set(0, 0, 0);
 
-// Crisp, balanced lighting (reduces facade overexposure)
+// Lighting
 const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
 dirLight.position.set(30, -50, 45);
 scene.add(dirLight);
@@ -36,13 +37,12 @@ let geometry = new THREE.PlaneGeometry(50, 50, GRID_SIZE - 1, GRID_SIZE - 1);
 
 let rgbTexture = null;
 let turboTexture = null;
-let verticalExaggeration = 2.4; // Realistic physical elevation scale (eliminates extreme curtain stretch)
+let verticalExaggeration = 2.4;
 let minElevation = 239.26;
 let maxElevation = 304.26;
 let currentBounds = [77.200, 28.610, 77.215, 28.625];
 let rawGridMatrix = null;
 
-// Custom shader material with slope-based ambient facade shading
 const material = new THREE.MeshStandardMaterial({
   color: 0xffffff,
   roughness: 0.65,
@@ -50,7 +50,6 @@ const material = new THREE.MeshStandardMaterial({
   side: THREE.DoubleSide
 });
 
-// Procedural vertical facade dimming shader injection
 material.onBeforeCompile = (shader) => {
   shader.vertexShader = shader.vertexShader.replace(
     '#include <common>',
@@ -70,7 +69,6 @@ material.onBeforeCompile = (shader) => {
   shader.fragmentShader = shader.fragmentShader.replace(
     '#include <dithering_fragment>',
     `#include <dithering_fragment>
-     // Darken steep vertical facades to simulate structural depth and stop pixel blur
      float facadeFactor = mix(0.45, 1.0, smoothstep(0.3, 0.85, vSlope));
      gl_FragColor.rgb *= facadeFactor;`
   );
@@ -79,6 +77,7 @@ material.onBeforeCompile = (shader) => {
 let terrainMesh = new THREE.Mesh(geometry, material);
 scene.add(terrainMesh);
 
+// Smooth Transitions
 let targetCamPos = null;
 let targetLookAt = null;
 let transitionProgress = 1.0;
@@ -96,8 +95,7 @@ view2dBtn.addEventListener('click', () => {
   view2dBtn.classList.add('active');
   view3dBtn.classList.remove('active');
   isFlying = false;
-  isFpv = false;
-  updateNavState();
+  exitFpvMode();
   smoothTransitionTo(new THREE.Vector3(0, 0.01, 65), new THREE.Vector3(0, 0, 0));
 });
 
@@ -105,56 +103,103 @@ view3dBtn.addEventListener('click', () => {
   view3dBtn.classList.add('active');
   view2dBtn.classList.remove('active');
   isFlying = false;
-  isFpv = false;
-  updateNavState();
+  exitFpvMode();
   smoothTransitionTo(new THREE.Vector3(0, -38, 24), new THREE.Vector3(0, 0, 1.5));
 });
 
+// Autonomous Flythrough & True FPS Drone Flight
 let isFlying = false;
 let isFpv = false;
 let flightClock = 0;
 const keysPressed = {};
 
+// Euler angles for FPS Drone Look
+const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+const PI_2 = Math.PI / 2;
+
 const flightBtn = document.getElementById('btn-flythrough');
 const fpvBtn = document.getElementById('btn-fpv');
+
+function exitFpvMode() {
+  if (isFpv) {
+    isFpv = false;
+    fpvBtn.classList.remove('active');
+    fpvBtn.textContent = "First-Person Drone Flight (WASD)";
+    document.exitPointerLock?.();
+    controls.enabled = true;
+  }
+}
 
 flightBtn.addEventListener('click', () => {
   isFlying = !isFlying;
   if (isFlying) {
-    isFpv = false;
+    exitFpvMode();
     view3dBtn.classList.add('active');
     view2dBtn.classList.remove('active');
   }
-  updateNavState();
+  flightBtn.classList.toggle('active', isFlying);
+  flightBtn.textContent = isFlying ? "Abort Flythrough" : "Engage Autonomous Flythrough";
+  controls.enabled = !isFlying;
 });
 
 fpvBtn.addEventListener('click', () => {
   isFpv = !isFpv;
   if (isFpv) {
     isFlying = false;
+    flightBtn.classList.remove('active');
+    flightBtn.textContent = "Engage Autonomous Flythrough";
     view3dBtn.classList.add('active');
     view2dBtn.classList.remove('active');
+    
+    fpvBtn.classList.add('active');
+    fpvBtn.textContent = "Click Screen to Steer Drone (ESC to Exit)";
+    controls.enabled = false;
+    
+    // Request pointer lock when canvas is clicked
+    renderer.domElement.requestPointerLock();
+  } else {
+    exitFpvMode();
   }
-  updateNavState();
 });
 
-function updateNavState() {
-  flightBtn.classList.toggle('active', isFlying);
-  flightBtn.textContent = isFlying ? "Abort Flythrough" : "Engage Autonomous Flythrough";
-  
-  fpvBtn.classList.toggle('active', isFpv);
-  fpvBtn.textContent = isFpv ? "Exit First-Person Flight" : "First-Person Drone Flight (WASD)";
-  
-  controls.enabled = (!isFlying && !isFpv && transitionProgress >= 1.0);
-}
+// Pointer Lock Event Listeners
+document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement === renderer.domElement) {
+    fpvBtn.textContent = "Drone Active (WASD + Mouse | ESC to Exit)";
+  } else if (isFpv) {
+    fpvBtn.textContent = "Drone Paused: Click Map to Resume";
+  }
+});
+
+renderer.domElement.addEventListener('click', () => {
+  if (isFpv && document.pointerLockElement !== renderer.domElement) {
+    renderer.domElement.requestPointerLock();
+  }
+});
+
+document.addEventListener('mousemove', (event) => {
+  if (isFpv && document.pointerLockElement === renderer.domElement) {
+    const movementX = event.movementX || 0;
+    const movementY = event.movementY || 0;
+
+    euler.setFromQuaternion(camera.quaternion);
+    euler.y -= movementX * 0.0025;
+    euler.x -= movementY * 0.0025;
+    euler.x = Math.max(-PI_2 + 0.1, Math.min(PI_2 - 0.1, euler.x));
+    camera.quaternion.setFromEuler(euler);
+  }
+});
 
 window.addEventListener('keydown', (e) => { keysPressed[e.key.toLowerCase()] = true; });
 window.addEventListener('keyup', (e) => { keysPressed[e.key.toLowerCase()] = false; });
 
+// Raycasting & Telemetry
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
 window.addEventListener('mousemove', (e) => {
+  if (isFpv && document.pointerLockElement === renderer.domElement) return;
+
   mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
   mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
@@ -177,6 +222,7 @@ window.addEventListener('mousemove', (e) => {
   }
 });
 
+// Ingestion Pipeline
 document.getElementById('file-input').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -189,10 +235,7 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
   formData.append('file', file);
 
   try {
-    const res = await fetch('/api/reconstruct', {
-      method: 'POST',
-      body: formData
-    });
+    const res = await fetch('/api/reconstruct', { method: 'POST', body: formData });
     if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
     const data = await res.json();
 
@@ -221,7 +264,6 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
     rawGridMatrix = data.elevation_grid;
     const elevRange = maxElevation - minElevation || 1.0;
 
-    // Clean boundary skirts with natural taper to avoid edge warp
     for (let r = 0; r < GRID_SIZE; r++) {
       for (let c = 0; c < GRID_SIZE; c++) {
         const idx = r * GRID_SIZE + c;
@@ -242,7 +284,7 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
         rgbTexture.generateMipmaps = true;
         rgbTexture.minFilter = THREE.LinearMipmapLinearFilter;
         rgbTexture.magFilter = THREE.LinearFilter;
-        rgbTexture.anisotropy = maxAniso; // Ultra-sharp anisotropic filtering
+        rgbTexture.anisotropy = maxAniso;
         rgbTexture.needsUpdate = true;
         
         terrainMesh.material.map = rgbTexture;
@@ -275,6 +317,7 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
   }
 });
 
+// Layer Toggles
 document.getElementById('toggle-rgb').addEventListener('click', () => {
   if (rgbTexture) {
     terrainMesh.material.map = rgbTexture;
@@ -293,6 +336,7 @@ document.getElementById('toggle-turbo').addEventListener('click', () => {
   }
 });
 
+// Ruler & Transects
 let activeTool = null;
 let clickPoints = [];
 const markers = [];
@@ -380,7 +424,6 @@ measureBtn.addEventListener('click', () => {
   profileBtn.classList.remove('active');
   measureBox.style.display = activeTool === 'measure' ? 'block' : 'none';
   profileDrawer.style.display = 'none';
-  controls.enabled = (activeTool === null && !isFlying && !isFpv);
   clearMarkers();
 });
 
@@ -390,7 +433,6 @@ profileBtn.addEventListener('click', () => {
   measureBtn.classList.remove('active');
   profileDrawer.style.display = activeTool === 'profile' ? 'block' : 'none';
   measureBox.style.display = 'none';
-  controls.enabled = (activeTool === null && !isFlying && !isFpv);
   clearMarkers();
 });
 
@@ -448,6 +490,7 @@ window.addEventListener('click', (e) => {
   }
 });
 
+// Deliverables
 document.getElementById('export-geotiff').addEventListener('click', () => {
   window.open('/api/download-geotiff', '_blank');
 });
@@ -473,6 +516,7 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+// Render Loop
 function animate() {
   requestAnimationFrame(animate);
 
@@ -491,11 +535,10 @@ function animate() {
     );
     camera.lookAt(0, 0, 2);
   } else if (isFpv) {
-    const moveSpeed = 0.4;
+    // True Drone Physics Movement
+    const moveSpeed = 0.55;
     const forward = new THREE.Vector3();
     camera.getWorldDirection(forward);
-    forward.z = 0;
-    forward.normalize();
 
     const right = new THREE.Vector3();
     right.crossVectors(camera.up, forward).negate().normalize();
@@ -504,8 +547,8 @@ function animate() {
     if (keysPressed['s']) camera.position.addScaledVector(forward, -moveSpeed);
     if (keysPressed['a']) camera.position.addScaledVector(right, -moveSpeed);
     if (keysPressed['d']) camera.position.addScaledVector(right, moveSpeed);
-    if (keysPressed['e']) camera.position.z += moveSpeed * 0.5;
-    if (keysPressed['q']) camera.position.z = Math.max(1.2, camera.position.z - moveSpeed * 0.5);
+    if (keysPressed['e']) camera.position.z += moveSpeed * 0.7;
+    if (keysPressed['q']) camera.position.z = Math.max(1.2, camera.position.z - moveSpeed * 0.7);
   } else {
     controls.update();
   }
