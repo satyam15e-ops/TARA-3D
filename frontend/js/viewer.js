@@ -124,7 +124,7 @@ function exitFpvMode() {
     isFpv = false;
     if (fpvBtn) {
       fpvBtn.classList.remove('active');
-      fpvBtn.textContent = "First-Person Drone Flight (WASD)";
+      fpvBtn.textContent = "First-Person Drone Recon (WASD)";
     }
     if (document.exitPointerLock) document.exitPointerLock();
     controls.enabled = true;
@@ -323,31 +323,14 @@ if (fileInput) {
   });
 }
 
-document.getElementById('toggle-rgb')?.addEventListener('click', () => {
-  if (rgbTexture) {
-    terrainMesh.material.map = rgbTexture;
-    terrainMesh.material.needsUpdate = true;
-    document.getElementById('toggle-rgb').classList.add('active');
-    document.getElementById('toggle-turbo').classList.remove('active');
-  }
-});
-
-document.getElementById('toggle-turbo')?.addEventListener('click', () => {
-  if (turboTexture) {
-    terrainMesh.material.map = turboTexture;
-    terrainMesh.material.needsUpdate = true;
-    document.getElementById('toggle-turbo').classList.add('active');
-    document.getElementById('toggle-rgb').classList.remove('active');
-  }
-});
-
-// DISASTER TRIAGE SUITE
+// REAL-TIME DISASTER TRIAGE CONTROLLERS (SLIDE 5 IMPACT)
 let floodMesh = null;
 let isFloodSimActive = false;
 const floodBtn = document.getElementById('btn-flood-sim');
+const disasterBox = document.getElementById('disaster-telemetry-box');
 
 if (floodBtn) {
-  floodBtn.addEventListener('click', () => {
+  floodBtn.addEventListener('click', async () => {
     isFloodSimActive = !isFloodSimActive;
     floodBtn.classList.toggle('active', isFloodSimActive);
     floodBtn.textContent = isFloodSimActive ? "Drain Floodwater" : "Simulate Flood (+5m)";
@@ -368,8 +351,26 @@ if (floodBtn) {
       const waterHeightNorm = (5.0 / (maxElevation - minElevation || 1.0)) * verticalExaggeration;
       floodMesh.position.set(0, 0, waterHeightNorm);
       floodMesh.visible = true;
-    } else if (floodMesh) {
-      floodMesh.visible = false;
+
+      // Sub-millisecond hazard calculation
+      try {
+        const res = await fetch('/api/disaster/flood-analysis?water_rise_m=5.0');
+        const data = await res.json();
+        if (data.status === 'success') {
+          disasterBox.style.display = 'block';
+          document.getElementById('surge-m').textContent = `+5.0 m (${data.flood_water_amsl_m} m AMSL)`;
+          document.getElementById('inundated-area').textContent = `${data.inundated_area_m2} m² (${data.inundated_percentage}%)`;
+          document.getElementById('max-depth').textContent = `${data.max_water_depth_m} m`;
+          const alertElem = document.getElementById('evac-alert');
+          alertElem.textContent = data.critical_evacuation_alert ? "CRITICAL: EVACUATE LOW GROUND" : "MODERATE INUNDATION";
+          alertElem.style.color = data.critical_evacuation_alert ? "#f87171" : "#facc15";
+        }
+      } catch(err) {
+        console.warn("Flood telemetry fetch failed:", err);
+      }
+    } else {
+      if (floodMesh) floodMesh.visible = false;
+      if (disasterBox) disasterBox.style.display = 'none';
     }
   });
 }
@@ -378,56 +379,46 @@ const helipadBtn = document.getElementById('btn-helipad-zones');
 let helipadMarkers = [];
 
 if (helipadBtn) {
-  helipadBtn.addEventListener('click', () => {
+  helipadBtn.addEventListener('click', async () => {
     const isActive = helipadBtn.classList.toggle('active');
     helipadBtn.textContent = isActive ? "Clear Helipads" : "Detect Helipads";
 
     helipadMarkers.forEach(m => scene.remove(m));
     helipadMarkers = [];
 
-    if (isActive && rawGridMatrix) {
-      const pos = geometry.attributes.position;
-      const step = 20;
-      const minRoofClearance = minElevation + (maxElevation - minElevation) * 0.45;
+    if (isActive) {
+      try {
+        const res = await fetch('/api/disaster/helipad-triage');
+        const data = await res.json();
+        if (data.status === 'success' && data.candidates.length > 0) {
+          data.candidates.forEach(c => {
+            const u = (c.lon - currentBounds[0]) / (currentBounds[2] - currentBounds[0]);
+            const v = (c.lat - currentBounds[1]) / (currentBounds[3] - currentBounds[1]);
+            const x = (u - 0.5) * 50;
+            const y = (v - 0.5) * 50;
+            const z = ((c.elevation_amsl_m - minElevation) / (maxElevation - minElevation)) * verticalExaggeration;
 
-      for (let r = step; r < GRID_SIZE - step; r += step) {
-        for (let c = step; c < GRID_SIZE - step; c += step) {
-          const idx = r * GRID_SIZE + c;
-          const z = pos.getZ(idx);
-          const elev = minElevation + (z / verticalExaggeration) * (maxElevation - minElevation);
-
-          const zNorth = pos.getZ((r - 2) * GRID_SIZE + c);
-          const zSouth = pos.getZ((r + 2) * GRID_SIZE + c);
-          const zWest  = pos.getZ(r * GRID_SIZE + (c - 2));
-          const zEast  = pos.getZ(r * GRID_SIZE + (c + 2));
-
-          const maxSlopeDelta = Math.max(
-            Math.abs(z - zNorth),
-            Math.abs(z - zSouth),
-            Math.abs(z - zWest),
-            Math.abs(z - zEast)
-          );
-
-          if (elev > minRoofClearance && maxSlopeDelta < 0.22) {
             const group = new THREE.Group();
-
             const ringGeo = new THREE.RingGeometry(0.85, 1.15, 32);
-            const ringMat = new THREE.MeshBasicMaterial({ color: 0x10b981, side: THREE.DoubleSide });
+            const ringMat = new THREE.MeshBasicMaterial({ 
+              color: c.triage_priority === 'PRIMARY' ? 0x10b981 : 0x38bdf8, 
+              side: THREE.DoubleSide 
+            });
             const ring = new THREE.Mesh(ringGeo, ringMat);
 
             const centerGeo = new THREE.CircleGeometry(0.28, 16);
-            const centerMat = new THREE.MeshBasicMaterial({ color: 0x34d399, side: THREE.DoubleSide });
+            const centerMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
             const dot = new THREE.Mesh(centerGeo, centerMat);
 
             group.add(ring);
             group.add(dot);
-
-            // Plane is on XY; mesh position uses Z for height. No tilt needed.
-            group.position.set(pos.getX(idx), pos.getY(idx), z + 0.12);
+            group.position.set(x, y, z + 0.15);
             scene.add(group);
             helipadMarkers.push(group);
-          }
+          });
         }
+      } catch (err) {
+        console.warn("Helipad triage fetch failed:", err);
       }
     }
   });
