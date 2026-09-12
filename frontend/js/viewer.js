@@ -3,56 +3,82 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x060913);
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 3000);
-// Start at oblique 3D view so 3D relief is immediately visible
-camera.position.set(0, -42, 32);
+camera.position.set(0, -36, 26);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 container.appendChild(renderer.domElement);
 
-// Smooth, unrestricted GIS OrbitControls (Full 360 pitch, yaw, and pan)
+const maxAniso = renderer.capabilities.getMaxAnisotropy();
+
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
-controls.screenSpacePanning = true; // Allows natural map panning in all directions
-controls.maxPolarAngle = Math.PI / 2 + 0.15; // Allows looking slightly upward at skyline
-controls.minDistance = 5;
+controls.screenSpacePanning = true;
+controls.maxPolarAngle = Math.PI / 2 + 0.05;
+controls.minDistance = 4;
 controls.maxDistance = 250;
 controls.target.set(0, 0, 0);
 
-// Lighting setup for high building relief shadow contrast
-const dirLight = new THREE.DirectionalLight(0xffffff, 1.8);
-dirLight.position.set(30, -50, 50);
+// Crisp, balanced lighting (reduces facade overexposure)
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+dirLight.position.set(30, -50, 45);
 scene.add(dirLight);
 
-const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.6);
+const fillLight = new THREE.DirectionalLight(0x94a3b8, 0.4);
 fillLight.position.set(-30, 40, 20);
 scene.add(fillLight);
-scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+scene.add(new THREE.AmbientLight(0xffffff, 0.65));
 
 let GRID_SIZE = 256;
 let geometry = new THREE.PlaneGeometry(50, 50, GRID_SIZE - 1, GRID_SIZE - 1);
 
 let rgbTexture = null;
 let turboTexture = null;
-let verticalExaggeration = 5.5; // Pronounced physical building relief
+let verticalExaggeration = 2.4; // Realistic physical elevation scale (eliminates extreme curtain stretch)
 let minElevation = 239.26;
 let maxElevation = 304.26;
 let currentBounds = [77.200, 28.610, 77.215, 28.625];
 let rawGridMatrix = null;
 
+// Custom shader material with slope-based ambient facade shading
 const material = new THREE.MeshStandardMaterial({
   color: 0xffffff,
-  roughness: 0.4,
-  metalness: 0.1,
+  roughness: 0.65,
+  metalness: 0.05,
   side: THREE.DoubleSide
 });
+
+// Procedural vertical facade dimming shader injection
+material.onBeforeCompile = (shader) => {
+  shader.vertexShader = shader.vertexShader.replace(
+    '#include <common>',
+    `#include <common>
+     varying float vSlope;`
+  );
+  shader.vertexShader = shader.vertexShader.replace(
+    '#include <beginnormal_vertex>',
+    `#include <beginnormal_vertex>
+     vSlope = clamp(dot(normalize(normal), vec3(0.0, 0.0, 1.0)), 0.0, 1.0);`
+  );
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <common>',
+    `#include <common>
+     varying float vSlope;`
+  );
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <dithering_fragment>',
+    `#include <dithering_fragment>
+     // Darken steep vertical facades to simulate structural depth and stop pixel blur
+     float facadeFactor = mix(0.45, 1.0, smoothstep(0.3, 0.85, vSlope));
+     gl_FragColor.rgb *= facadeFactor;`
+  );
+};
 
 let terrainMesh = new THREE.Mesh(geometry, material);
 scene.add(terrainMesh);
 
-// Smooth Animated Camera Transition Engine
 let targetCamPos = null;
 let targetLookAt = null;
 let transitionProgress = 1.0;
@@ -63,7 +89,6 @@ function smoothTransitionTo(camPos, lookAtPos) {
   transitionProgress = 0.0;
 }
 
-// Perspective Switchers (Cinematic Interpolated Transitions)
 const view2dBtn = document.getElementById('view-2d');
 const view3dBtn = document.getElementById('view-3d');
 
@@ -73,8 +98,7 @@ view2dBtn.addEventListener('click', () => {
   isFlying = false;
   isFpv = false;
   updateNavState();
-  // Smoothly pitch up to true 2D top-down nadir Bhuvan map view
-  smoothTransitionTo(new THREE.Vector3(0, 0.01, 68), new THREE.Vector3(0, 0, 0));
+  smoothTransitionTo(new THREE.Vector3(0, 0.01, 65), new THREE.Vector3(0, 0, 0));
 });
 
 view3dBtn.addEventListener('click', () => {
@@ -83,11 +107,9 @@ view3dBtn.addEventListener('click', () => {
   isFlying = false;
   isFpv = false;
   updateNavState();
-  // Smoothly dive into cinematic 3D perspective with pronounced elevation
-  smoothTransitionTo(new THREE.Vector3(0, -45, 28), new THREE.Vector3(0, 0, 2));
+  smoothTransitionTo(new THREE.Vector3(0, -38, 24), new THREE.Vector3(0, 0, 1.5));
 });
 
-// Autonomous Flythrough & FPV Navigation
 let isFlying = false;
 let isFpv = false;
 let flightClock = 0;
@@ -129,7 +151,6 @@ function updateNavState() {
 window.addEventListener('keydown', (e) => { keysPressed[e.key.toLowerCase()] = true; });
 window.addEventListener('keyup', (e) => { keysPressed[e.key.toLowerCase()] = false; });
 
-// Dynamic Cursor Telemetry (Lat, Lon, AMSL Height)
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
@@ -156,7 +177,6 @@ window.addEventListener('mousemove', (e) => {
   }
 });
 
-// Ingestion Pipeline Handler
 document.getElementById('file-input').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -201,12 +221,13 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
     rawGridMatrix = data.elevation_grid;
     const elevRange = maxElevation - minElevation || 1.0;
 
+    // Clean boundary skirts with natural taper to avoid edge warp
     for (let r = 0; r < GRID_SIZE; r++) {
       for (let c = 0; c < GRID_SIZE; c++) {
         const idx = r * GRID_SIZE + c;
-        const isEdge = (r === 0 || r === GRID_SIZE - 1 || c === 0 || c === GRID_SIZE - 1);
+        const isBorder = (r === 0 || r === GRID_SIZE - 1 || c === 0 || c === GRID_SIZE - 1);
         const rawZ = rawGridMatrix[r][c];
-        const normZ = isEdge ? 0.0 : THREE.MathUtils.clamp((rawZ - minElevation) / elevRange, 0.0, 1.0);
+        const normZ = isBorder ? 0.0 : THREE.MathUtils.clamp((rawZ - minElevation) / elevRange, 0.0, 1.0);
         pos.setZ(idx, normZ * verticalExaggeration);
       }
     }
@@ -218,7 +239,12 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
       const img = new Image();
       img.onload = () => {
         rgbTexture = new THREE.Texture(img);
+        rgbTexture.generateMipmaps = true;
+        rgbTexture.minFilter = THREE.LinearMipmapLinearFilter;
+        rgbTexture.magFilter = THREE.LinearFilter;
+        rgbTexture.anisotropy = maxAniso; // Ultra-sharp anisotropic filtering
         rgbTexture.needsUpdate = true;
+        
         terrainMesh.material.map = rgbTexture;
         terrainMesh.material.needsUpdate = true;
 
@@ -226,14 +252,16 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
         turboImg.crossOrigin = "anonymous";
         turboImg.onload = () => {
           turboTexture = new THREE.Texture(turboImg);
+          turboTexture.generateMipmaps = true;
+          turboTexture.minFilter = THREE.LinearMipmapLinearFilter;
+          turboTexture.magFilter = THREE.LinearFilter;
+          turboTexture.anisotropy = maxAniso;
           turboTexture.needsUpdate = true;
         };
         turboImg.src = data.heatmap_url + '?t=' + new Date().getTime();
 
         statusText.textContent = "Operational (60 FPS)";
         statusText.style.color = "#34d399";
-
-        // Auto-switch to 3D perspective to reveal reconstructed relief
         view3dBtn.click();
       };
       img.src = event.target.result;
@@ -247,7 +275,6 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
   }
 });
 
-// Layer Toggles
 document.getElementById('toggle-rgb').addEventListener('click', () => {
   if (rgbTexture) {
     terrainMesh.material.map = rgbTexture;
@@ -266,7 +293,6 @@ document.getElementById('toggle-turbo').addEventListener('click', () => {
   }
 });
 
-// Structural Tools: Ruler & Transects
 let activeTool = null;
 let clickPoints = [];
 const markers = [];
@@ -280,7 +306,7 @@ function clearMarkers() {
 }
 
 function createMarker(pos, color) {
-  const markerGeo = new THREE.SphereGeometry(0.4, 16, 16);
+  const markerGeo = new THREE.SphereGeometry(0.35, 16, 16);
   const markerMat = new THREE.MeshBasicMaterial({ color: color });
   const marker = new THREE.Mesh(markerGeo, markerMat);
   marker.position.copy(pos);
@@ -422,7 +448,6 @@ window.addEventListener('click', (e) => {
   }
 });
 
-// Deliverables Export
 document.getElementById('export-geotiff').addEventListener('click', () => {
   window.open('/api/download-geotiff', '_blank');
 });
@@ -448,30 +473,25 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// High-Performance 60 FPS Render Loop
 function animate() {
   requestAnimationFrame(animate);
 
-  // Smooth Camera Transition Interpolation
   if (transitionProgress < 1.0) {
     transitionProgress += 0.035;
-    const t = Math.min(1.0, transitionProgress);
-    // Smooth cosine easing
-    const ease = 0.5 - 0.5 * Math.cos(t * Math.PI);
     camera.position.lerpVectors(camera.position, targetCamPos, 0.08);
     controls.target.lerp(targetLookAt, 0.08);
     controls.update();
   } else if (isFlying) {
     flightClock += 0.0035;
-    const radius = 38;
+    const radius = 34;
     camera.position.set(
       Math.cos(flightClock) * radius,
       Math.sin(flightClock) * (radius * 0.9),
-      24 + Math.sin(flightClock * 2) * 3
+      20 + Math.sin(flightClock * 2) * 2.5
     );
-    camera.lookAt(0, 0, 3);
+    camera.lookAt(0, 0, 2);
   } else if (isFpv) {
-    const moveSpeed = 0.45;
+    const moveSpeed = 0.4;
     const forward = new THREE.Vector3();
     camera.getWorldDirection(forward);
     forward.z = 0;
@@ -484,8 +504,8 @@ function animate() {
     if (keysPressed['s']) camera.position.addScaledVector(forward, -moveSpeed);
     if (keysPressed['a']) camera.position.addScaledVector(right, -moveSpeed);
     if (keysPressed['d']) camera.position.addScaledVector(right, moveSpeed);
-    if (keysPressed['e']) camera.position.z += moveSpeed * 0.6;
-    if (keysPressed['q']) camera.position.z = Math.max(1.5, camera.position.z - moveSpeed * 0.6);
+    if (keysPressed['e']) camera.position.z += moveSpeed * 0.5;
+    if (keysPressed['q']) camera.position.z = Math.max(1.2, camera.position.z - moveSpeed * 0.5);
   } else {
     controls.update();
   }
@@ -493,4 +513,3 @@ function animate() {
   renderer.render(scene, camera);
 }
 animate();
-
