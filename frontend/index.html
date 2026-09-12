@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TARA-3D | ISRO SAC SIH26175 Disaster GIS Cockpit</title>
-  <link rel="stylesheet" href="css/style.css?v=3">
+  <link rel="stylesheet" href="css/style.css?v=4">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
@@ -25,37 +25,38 @@
 
   <div id="hud">
     <div class="hud-panel">
-      <div class="section-title">1. INGESTION (PNG / JPG / GEOTIFF)</div>
+      <div class="section-title">1. SATELLITE INGESTION</div>
       <label class="custom-file-upload">
         <input type="file" id="file-input" accept="image/*,.tif,.tiff">
-        Select Disaster Optical Satellite Image
+        Select Optical Satellite Tile
       </label>
       <div class="meta-info">
         Classification: <span id="regime-tag" class="highlight">URBAN STRUCTURAL</span><br>
         Datum Anchor: <span id="meta-crs">EPSG:4326</span>
       </div>
 
-      <div class="section-title">2. PERSPECTIVE &amp; FLIGHT RECONNAISSANCE</div>
+      <div class="section-title">2. PERSPECTIVE &amp; NAVIGATION</div>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
         <button id="view-2d" class="action-btn">2D Bhuvan View</button>
         <button id="view-3d" class="action-btn active">3D Perspective</button>
       </div>
       <button id="btn-flythrough" class="action-btn-danger" style="margin-top: 8px;">Engage Autonomous Flythrough</button>
-      <button id="btn-fpv" class="action-btn-flight" style="margin-top: 8px;">First-Person Drone Recon (WASD)</button>
+      <button id="btn-fpv" class="action-btn-flight" style="margin-top: 8px;">First-Person Drone Flight (WASD)</button>
 
       <div class="section-title">3. TACTICAL DISASTER MANAGEMENT SUITE</div>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
-        <button id="btn-flood-sim" class="action-btn" style="border-color: #38bdf8; color: #38bdf8;">Simulate Flood (+5m)</button>
-        <button id="btn-helipad-zones" class="action-btn" style="border-color: #34d399; color: #34d399;">Detect Helipads</button>
+        <button id="btn-flood-sim" class="action-btn" style="border-color: #38bdf8; color: #38bdf8;">Flood Hazard (+5m)</button>
+        <button id="btn-helipad-zones" class="action-btn" style="border-color: #34d399; color: #34d399;">ICAO Helipads</button>
       </div>
+      <button id="btn-uav-corridor" class="action-btn" style="border-color: #f59e0b; color: #f59e0b; margin-bottom: 8px;">UAV Flight Clearance Corridor</button>
       
       <!-- Real-Time Metric Disaster Telemetry -->
       <div id="disaster-telemetry-box" style="display:none; padding:8px; background:rgba(2,132,199,0.15); border:1px solid #38bdf8; border-radius:4px; font-size:10.5px; font-family:monospace; line-height:1.5; margin-bottom:8px;">
-        <div style="font-weight:bold; color:#38bdf8; margin-bottom:2px;">TACTICAL INUNDATION METRICS:</div>
-        <div>Surge Height: <span id="surge-m" style="color:#f8fafc;">+5.0 m</span></div>
-        <div>Inundated Area: <span id="inundated-area" style="color:#facc15;">--</span></div>
-        <div>Max Submerged Depth: <span id="max-depth" style="color:#f87171;">--</span></div>
-        <div>Status: <span id="evac-alert" style="font-weight:bold;">--</span></div>
+        <div style="font-weight:bold; color:#38bdf8; margin-bottom:2px;">TACTICAL DISASTER TELEMETRY:</div>
+        <div id="disaster-metric-1">--</div>
+        <div id="disaster-metric-2">--</div>
+        <div id="disaster-metric-3">--</div>
+        <div id="disaster-metric-4">--</div>
       </div>
 
       <div class="section-title">4. TOPOGRAPHIC ANALYSIS</div>
@@ -101,6 +102,6 @@
     RELIEF: <span id="cur-relief">65.0 m</span>
   </div>
 
-  <script src="js/viewer.js?v=3"></script>
+  <script src="js/viewer.js?v=4"></script>
 </body>
 </html>

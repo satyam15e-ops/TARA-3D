@@ -7,12 +7,12 @@ import numpy as np
 import io
 import os
 import rasterio
-from scipy.ndimage import zoom, uniform_filter
+from scipy.ndimage import zoom, label
 from backend.depth_engine import DepthEngine
 from backend.geospatial_engine import GeospatialCalibrationEngine
 from backend.legend_generator import export_metric_dsm_with_legend
 
-app = FastAPI(title="TARA-3D Tactical Disaster Intelligence Engine")
+app = FastAPI(title="TARA-3D Disaster Intelligence Engine")
 
 app.add_middleware(
     CORSMiddleware,
@@ -29,7 +29,6 @@ engine = DepthEngine()
 geo_calibrator = GeospatialCalibrationEngine()
 LATEST_GEOTIFF_PATH = "outputs/TARA3D_Calibrated_DSM.tif"
 
-# Global memory cache of active tactical matrix for sub-10ms disaster triage queries
 CURRENT_TACTICAL_CONTEXT = {
     "dsm": None,
     "bounds": [77.200, 28.610, 77.215, 28.625],
@@ -111,13 +110,12 @@ async def reconstruct(
         )
         export_metric_dsm_with_legend(metric_dsm, "outputs/latest_dsm.png")
 
-        # Cache tactical state for real-time disaster triage
         CURRENT_TACTICAL_CONTEXT["dsm"] = metric_dsm
         CURRENT_TACTICAL_CONTEXT["bounds"] = list(bounds)
         CURRENT_TACTICAL_CONTEXT["crs"] = native_crs
         CURRENT_TACTICAL_CONTEXT["base_elev"] = elev_min
         CURRENT_TACTICAL_CONTEXT["max_elev"] = elev_max
-        CURRENT_TACTICAL_CONTEXT["pixel_res_m"] = 500.0 / w  # approx GSD in meters
+        CURRENT_TACTICAL_CONTEXT["pixel_res_m"] = 500.0 / w
 
         return {
             "status": "success",
@@ -135,18 +133,12 @@ async def reconstruct(
             "geotiff_url": "/api/download-geotiff"
         }
     except Exception as e:
-        import traceback
-        traceback.print_exc()
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 @app.get("/api/disaster/flood-analysis")
-def calculate_flood_risk(water_rise_m: float = Query(3.0)):
-    """
-    Sub-millisecond flood hazard calculation for disaster authorities.
-    Calculates exact submerged area, depth severity, and inundation coverage.
-    """
+def calculate_flood_risk(water_rise_m: float = Query(5.0)):
     if CURRENT_TACTICAL_CONTEXT["dsm"] is None:
-        return JSONResponse(status_code=400, content={"error": "No terrain currently loaded"})
+        return JSONResponse(status_code=400, content={"error": "No terrain loaded"})
 
     dsm = CURRENT_TACTICAL_CONTEXT["dsm"]
     flood_level = CURRENT_TACTICAL_CONTEXT["base_elev"] + water_rise_m
@@ -159,7 +151,9 @@ def calculate_flood_risk(water_rise_m: float = Query(3.0)):
     pixel_area_m2 = (CURRENT_TACTICAL_CONTEXT["pixel_res_m"]) ** 2
     inundated_area_m2 = round(submerged_pixels * pixel_area_m2, 1)
 
-    max_water_depth_m = round(float(flood_level - np.min(dsm)), 2)
+    depth_array = np.where(submerged_mask, flood_level - dsm, 0.0)
+    inundated_volume_m3 = round(float(np.sum(depth_array) * pixel_area_m2), 1)
+    max_water_depth_m = round(float(np.max(depth_array)), 2)
 
     return {
         "status": "success",
@@ -167,65 +161,87 @@ def calculate_flood_risk(water_rise_m: float = Query(3.0)):
         "water_rise_m": water_rise_m,
         "inundated_percentage": pct_inundated,
         "inundated_area_m2": inundated_area_m2,
+        "inundated_volume_m3": inundated_volume_m3,
         "max_water_depth_m": max_water_depth_m,
-        "critical_evacuation_alert": pct_inundated > 25.0
+        "critical_evacuation_alert": pct_inundated > 15.0
     }
 
 @app.get("/api/disaster/helipad-triage")
 def detect_certified_helipads():
-    """
-    Computes ICAO-compliant flat structural platforms for emergency casualty evacuations.
-    Analyzes local gradient and structural prominence.
-    """
     if CURRENT_TACTICAL_CONTEXT["dsm"] is None:
-        return JSONResponse(status_code=400, content={"error": "No terrain currently loaded"})
+        return JSONResponse(status_code=400, content={"error": "No terrain loaded"})
 
     dsm = CURRENT_TACTICAL_CONTEXT["dsm"]
     h, w = dsm.shape
     base = CURRENT_TACTICAL_CONTEXT["base_elev"]
 
-    # Calculate local gradient (Slope)
     dy, dx = np.gradient(dsm)
     slope_deg = np.degrees(np.arctan(np.sqrt(dx**2 + dy**2)))
 
-    # ICAO criteria: elevated structural platform (>12m above base) and slope < 3.5 degrees
-    prominence_mask = (dsm - base) > 12.0
-    flat_mask = slope_deg < 3.5
-    valid_mask = prominence_mask & flat_mask
+    # ICAO Annex 14: Slope < 3.0 deg, elevated platform > 10m
+    flat_elevated = ((dsm - base) > 10.0) & (slope_deg < 3.0)
+    labeled, num_features = label(flat_elevated)
 
-    # Downsample coordinates for pinpoint UI landing markers
-    step = 24
-    candidates = []
+    pixel_area_m2 = (CURRENT_TACTICAL_CONTEXT["pixel_res_m"]) ** 2
     min_lon, min_lat, max_lon, max_lat = CURRENT_TACTICAL_CONTEXT["bounds"]
+    candidates = []
 
-    for r in range(step, h - step, step):
-        for c in range(step, w - step, step):
-            if valid_mask[r, c]:
-                lon = min_lon + (c / w) * (max_lon - min_lon)
-                lat = min_lat + ((h - r) / h) * (max_lat - min_lat)
-                candidates.append({
-                    "lat": round(lat, 5),
-                    "lon": round(lon, 5),
-                    "elevation_amsl_m": round(float(dsm[r, c]), 1),
-                    "clearance_agl_m": round(float(dsm[r, c] - base), 1),
-                    "local_slope_deg": round(float(slope_deg[r, c]), 1),
-                    "triage_priority": "PRIMARY" if (dsm[r, c] - base) > 20.0 else "SECONDARY"
-                })
+    for feat_id in range(1, num_features + 1):
+        points = np.argwhere(labeled == feat_id)
+        pad_area_m2 = len(points) * pixel_area_m2
+        if pad_area_m2 >= 45.0: # ICAO minimum safe touchdown diameter
+            r_c, c_c = np.mean(points, axis=0).astype(int)
+            elev = float(dsm[r_c, c_c])
+            lon = min_lon + (c_c / w) * (max_lon - min_lon)
+            lat = min_lat + ((h - r_c) / h) * (max_lat - min_lat)
 
+            # Check surrounding 15m radius for obstacle intrusion
+            r_min, r_max = max(0, r_c - 15), min(h, r_c + 15)
+            c_min, c_max = max(0, c_c - 15), min(w, c_c + 15)
+            surrounding = dsm[r_min:r_max, c_min:c_max]
+            obstacle_delta = float(np.max(surrounding) - elev)
+
+            candidates.append({
+                "lat": round(lat, 5),
+                "lon": round(lon, 5),
+                "elevation_amsl_m": round(elev, 1),
+                "clearance_agl_m": round(elev - base, 1),
+                "pad_area_m2": round(pad_area_m2, 1),
+                "mean_slope_deg": round(float(np.mean(slope_deg[labeled == feat_id])), 1),
+                "approach_obstacle_delta_m": round(max(0.0, obstacle_delta), 1),
+                "icao_compliant": obstacle_delta < 2.5
+            })
+
+    candidates.sort(key=lambda x: (x["icao_compliant"], x["pad_area_m2"]), reverse=True)
     return {
         "status": "success",
         "verified_landing_zones": len(candidates),
-        "candidates": candidates[:12] # return top 12 verified pads
+        "candidates": candidates[:10]
+    }
+
+@app.get("/api/disaster/uav-clearance")
+def calculate_uav_clearance(safety_margin_m: float = Query(15.0)):
+    if CURRENT_TACTICAL_CONTEXT["dsm"] is None:
+        return JSONResponse(status_code=400, content={"error": "No terrain loaded"})
+
+    dsm = CURRENT_TACTICAL_CONTEXT["dsm"]
+    mca_raster = dsm + safety_margin_m
+    tallest_structure_amsl = float(np.max(dsm))
+    recommended_safe_altitude = round(tallest_structure_amsl + safety_margin_m, 1)
+
+    return {
+        "status": "success",
+        "safety_margin_m": safety_margin_m,
+        "tallest_structure_amsl_m": round(tallest_structure_amsl, 1),
+        "minimum_safe_altitude_amsl_m": recommended_safe_altitude,
+        "grid_resolution": 64,
+        "mca_grid": zoom(mca_raster, (64 / mca_raster.shape[0], 64 / mca_raster.shape[1]), order=1).tolist()
     }
 
 @app.get("/api/download-geotiff")
 def download_geotiff():
     if os.path.exists(LATEST_GEOTIFF_PATH):
-        return FileResponse(
-            LATEST_GEOTIFF_PATH,
-            media_type="image/tiff",
-            filename="TARA3D_Calibrated_DSM_32Bit.tif"
-        )
+        return FileResponse(LATEST_GEOTIFF_PATH, media_type="image/tiff", filename="TARA3D_Calibrated_DSM_32Bit.tif")
     return JSONResponse(status_code=404, content={"error": "File not generated yet"})
 
 if os.path.exists("frontend"):
