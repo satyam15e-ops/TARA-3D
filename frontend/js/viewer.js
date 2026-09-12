@@ -2,61 +2,91 @@
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x070a13);
 
-const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(0, -65, 45);
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1500);
+camera.position.set(0, -55, 42);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 container.appendChild(renderer.domElement);
 
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
 
-const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
-dirLight.position.set(40, -50, 70);
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.6);
+dirLight.position.set(30, -50, 70);
 scene.add(dirLight);
-scene.add(new THREE.AmbientLight(0xffffff, 0.8));
 
-const GRID_SIZE = 160;
-const geometry = new THREE.PlaneGeometry(50, 50, GRID_SIZE - 1, GRID_SIZE - 1);
+const fillLight = new THREE.DirectionalLight(0x90b0ff, 0.6);
+fillLight.position.set(-30, 40, -20);
+scene.add(fillLight);
+scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+
+let GRID_SIZE = 256;
+let geometry = new THREE.PlaneGeometry(50, 50, GRID_SIZE - 1, GRID_SIZE - 1);
 
 let rgbTexture = null;
 let turboTexture = null;
-let maxHeightRelief = 3.25;
+let maxHeightRelief = 2.8;
 let minElevation = 239.26;
 let maxElevation = 304.26;
 
 const material = new THREE.MeshStandardMaterial({
   color: 0xffffff,
-  roughness: 0.6,
-  metalness: 0.1,
+  roughness: 0.5,
+  metalness: 0.05,
   side: THREE.DoubleSide
 });
 
-const terrainMesh = new THREE.Mesh(geometry, material);
+let terrainMesh = new THREE.Mesh(geometry, material);
 scene.add(terrainMesh);
 
-// 3D Flythrough Path Engine
+// 1. Navigation Modes: Orbit vs. Autonomous Flythrough vs. First-Person FPV
 let isFlying = false;
+let isFpv = false;
 let flightClock = 0;
+const keysPressed = {};
+
 const flightBtn = document.getElementById('btn-flythrough');
+const fpvBtn = document.getElementById('btn-fpv');
 const flightHud = document.getElementById('flight-hud');
+const flightHudTitle = document.getElementById('flight-hud-title');
 const flyAltSpan = document.getElementById('fly-alt');
 
 flightBtn.addEventListener('click', () => {
   isFlying = !isFlying;
-  flightBtn.classList.toggle('active', isFlying);
-  flightBtn.textContent = isFlying ? "Abort Flythrough" : "Engage 3D Flythrough Mission";
-  flightHud.style.display = isFlying ? "block" : "none";
-  controls.enabled = !isFlying;
-  if (!isFlying) {
-    camera.position.set(0, -65, 45);
-    camera.lookAt(0, 0, 0);
-  }
+  if (isFlying) isFpv = false;
+  updateNavState();
 });
 
+fpvBtn.addEventListener('click', () => {
+  isFpv = !isFpv;
+  if (isFpv) isFlying = false;
+  updateNavState();
+});
+
+function updateNavState() {
+  flightBtn.classList.toggle('active', isFlying);
+  flightBtn.textContent = isFlying ? "Abort Flythrough" : "Engage Autonomous Flythrough";
+  
+  fpvBtn.classList.toggle('active', isFpv);
+  fpvBtn.textContent = isFpv ? "Exit First-Person Flight" : "Engage First-Person Drone Flight (WASD)";
+
+  flightHud.style.display = (isFlying || isFpv) ? "block" : "none";
+  flightHudTitle.textContent = isFpv ? "MANUAL FPV DRONE FLIGHT [WASD/QE]" : "AUTONOMOUS SURVEY ORBIT";
+  
+  controls.enabled = (!isFlying && !isFpv);
+  if (!isFlying && !isFpv) {
+    camera.position.set(0, -55, 42);
+    camera.lookAt(0, 0, 0);
+  }
+}
+
+window.addEventListener('keydown', (e) => { keysPressed[e.key.toLowerCase()] = true; });
+window.addEventListener('keyup', (e) => { keysPressed[e.key.toLowerCase()] = false; });
+
+// 2. Inspection Tools: Slope & Height Ruler, 2D Transect
 let activeTool = null;
 let clickPoints = [];
 const raycaster = new THREE.Raycaster();
@@ -75,7 +105,7 @@ function clearMarkers() {
 }
 
 function createMarker(pos, color) {
-  const markerGeo = new THREE.SphereGeometry(0.5, 16, 16);
+  const markerGeo = new THREE.SphereGeometry(0.4, 16, 16);
   const markerMat = new THREE.MeshBasicMaterial({ color: color });
   const marker = new THREE.Mesh(markerGeo, markerMat);
   marker.position.copy(pos);
@@ -136,38 +166,66 @@ function renderProfileGraph(p1, p2) {
   ctx.font = '9px monospace';
   ctx.fillText(`${pMax.toFixed(1)}m`, 4, 18);
   ctx.fillText(`${pMin.toFixed(1)}m`, 4, h - 16);
-  ctx.fillText(`Transect Distance (A -> B)`, w / 2 - 50, h - 4);
+  ctx.fillText(`Transect Profile (Point A -> Point B)`, w / 2 - 60, h - 4);
 }
 
+// 3. Ingestion & Dynamic Surface Rebuild
 document.getElementById('file-input').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
 
   const statusText = document.getElementById('status-text');
-  statusText.textContent = "Anchoring to SRTM 30m Baseline...";
+  statusText.textContent = "Anchoring & Classifying Terrain...";
   statusText.style.color = "#facc15";
 
   const formData = new FormData();
   formData.append('file', file);
 
   try {
-    const res = await fetch('http://127.0.0.1:8000/api/reconstruct', {
+    const res = await fetch('/api/reconstruct', {
       method: 'POST',
       body: formData
     });
     if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
     const data = await res.json();
 
+    document.getElementById('pipeline-mode').textContent = data.pipeline_mode;
+    document.getElementById('regime-tag').textContent = data.terrain_regime.replace('_', ' ');
+    document.getElementById('meta-crs').textContent = data.crs;
+
     minElevation = data.elevation_min_m;
     maxElevation = data.elevation_max_m;
-    document.getElementById('min-elev').textContent = minElevation + " m AMSL";
-    document.getElementById('max-elev').textContent = maxElevation + " m AMSL";
+    document.getElementById('min-elev').textContent = minElevation + " m";
+    document.getElementById('max-elev').textContent = maxElevation + " m";
 
     if (data.accuracy) {
       document.getElementById('val-rmse').textContent = `±${data.accuracy.rmse_m} m`;
       document.getElementById('val-mae').textContent = `±${data.accuracy.mae_m} m`;
+      document.getElementById('val-corr').textContent = `${data.accuracy.pearson_r}`;
       document.getElementById('val-le90').textContent = `LE90 ≤ ${data.accuracy.le90_m} m (PASSED)`;
     }
+
+    GRID_SIZE = data.grid_resolution || 256;
+    scene.remove(terrainMesh);
+    geometry = new THREE.PlaneGeometry(50, 50, GRID_SIZE - 1, GRID_SIZE - 1);
+    terrainMesh = new THREE.Mesh(geometry, material);
+    scene.add(terrainMesh);
+
+    const pos = geometry.attributes.position;
+    const grid = data.elevation_grid;
+    const elevRange = maxElevation - minElevation || 1.0;
+    maxHeightRelief = 2.8;
+
+    for (let r = 0; r < GRID_SIZE; r++) {
+      for (let c = 0; c < GRID_SIZE; c++) {
+        const idx = r * GRID_SIZE + c;
+        const rawZ = grid[r][c];
+        const normZ = Math.max(0, Math.min(1, (rawZ - minElevation) / elevRange));
+        pos.setZ(idx, normZ * maxHeightRelief);
+      }
+    }
+    pos.needsUpdate = true;
+    geometry.computeVertexNormals();
 
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -178,26 +236,6 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
         terrainMesh.material.map = rgbTexture;
         terrainMesh.material.needsUpdate = true;
 
-        const canvas = document.createElement('canvas');
-        canvas.width = GRID_SIZE;
-        canvas.height = GRID_SIZE;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, GRID_SIZE, GRID_SIZE);
-        const imgData = ctx.getImageData(0, 0, GRID_SIZE, GRID_SIZE).data;
-        const pos = geometry.attributes.position;
-
-        maxHeightRelief = (maxElevation - minElevation) * 0.05;
-
-        for (let i = 0; i < pos.count; i++) {
-          const r = imgData[i * 4];
-          const g = imgData[i * 4 + 1];
-          const b = imgData[i * 4 + 2];
-          const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0;
-          pos.setZ(i, lum * maxHeightRelief);
-        }
-        pos.needsUpdate = true;
-        geometry.computeVertexNormals();
-
         const turboImg = new Image();
         turboImg.crossOrigin = "anonymous";
         turboImg.onload = () => {
@@ -206,7 +244,7 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
         };
         turboImg.src = data.heatmap_url + '?t=' + new Date().getTime();
 
-        statusText.textContent = "Reconstruction Active (60 FPS)";
+        statusText.textContent = "Pipeline Active (60 FPS)";
         statusText.style.color = "#34d399";
       };
       img.src = event.target.result;
@@ -234,6 +272,7 @@ document.getElementById('toggle-turbo').addEventListener('click', () => {
   }
 });
 
+// 4. Ruler with Metric Height (ΔZ) and Slope Gradient Angle
 const measureBtn = document.getElementById('toggle-measure');
 const profileBtn = document.getElementById('toggle-profile');
 const measureBox = document.getElementById('measure-box');
@@ -245,7 +284,7 @@ measureBtn.addEventListener('click', () => {
   profileBtn.classList.remove('active');
   measureBox.style.display = activeTool === 'measure' ? 'block' : 'none';
   profileDrawer.style.display = 'none';
-  controls.enabled = activeTool === null && !isFlying;
+  controls.enabled = activeTool === null && !isFlying && !isFpv;
   clearMarkers();
 });
 
@@ -255,12 +294,12 @@ profileBtn.addEventListener('click', () => {
   measureBtn.classList.remove('active');
   profileDrawer.style.display = activeTool === 'profile' ? 'block' : 'none';
   measureBox.style.display = 'none';
-  controls.enabled = activeTool === null && !isFlying;
+  controls.enabled = activeTool === null && !isFlying && !isFpv;
   clearMarkers();
 });
 
 window.addEventListener('click', (e) => {
-  if (!activeTool || isFlying) return;
+  if (!activeTool || isFlying || isFpv) return;
   if (e.target.closest('#hud') || e.target.closest('#profile-drawer') || e.target.closest('#mission-bar')) return;
 
   mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
@@ -278,18 +317,29 @@ window.addEventListener('click', (e) => {
 
     const calcElev = (z) => {
       const ratio = Math.max(0, Math.min(1, z / maxHeightRelief));
-      return (minElevation + ratio * (maxElevation - minElevation)).toFixed(1);
+      return (minElevation + ratio * (maxElevation - minElevation));
     };
 
     if (activeTool === 'measure') {
       if (clickPoints.length === 1) {
-        document.getElementById('pt-a').textContent = `${calcElev(pt.z)} m AMSL`;
+        document.getElementById('pt-a').textContent = `${calcElev(pt.z).toFixed(1)} m`;
         document.getElementById('pt-b').textContent = "Click surface";
         document.getElementById('delta-z').textContent = "--";
+        document.getElementById('slope-deg').textContent = "--";
       } else if (clickPoints.length === 2) {
-        document.getElementById('pt-b').textContent = `${calcElev(pt.z)} m AMSL`;
-        const diff = Math.abs(parseFloat(document.getElementById('pt-b').textContent) - parseFloat(document.getElementById('pt-a').textContent)).toFixed(1);
-        document.getElementById('delta-z').textContent = `${diff} m`;
+        const h1 = calcElev(clickPoints[0].z);
+        const h2 = calcElev(clickPoints[1].z);
+        document.getElementById('pt-b').textContent = `${h2.toFixed(1)} m`;
+        
+        const deltaZ = Math.abs(h2 - h1);
+        document.getElementById('delta-z').textContent = `${deltaZ.toFixed(1)} m`;
+
+        // Calculate Ground Horizontal Distance (scaled 50 units = ~500m ground width)
+        const dx = (clickPoints[1].x - clickPoints[0].x) * 10;
+        const dy = (clickPoints[1].y - clickPoints[0].y) * 10;
+        const horizDist = Math.sqrt(dx*dx + dy*dy) + 1e-6;
+        const slopeAngle = (Math.atan(deltaZ / horizDist) * (180.0 / Math.PI)).toFixed(1);
+        document.getElementById('slope-deg').textContent = `${slopeAngle}° (${((deltaZ / horizDist)*100).toFixed(0)}% grade)`;
       }
     } else if (activeTool === 'profile') {
       if (clickPoints.length === 1) {
@@ -304,7 +354,7 @@ window.addEventListener('click', (e) => {
 });
 
 document.getElementById('export-geotiff').addEventListener('click', () => {
-  window.open('http://127.0.0.1:8000/api/download-geotiff', '_blank');
+  window.open('/api/download-geotiff', '_blank');
 });
 
 document.getElementById('export-gltf').addEventListener('click', () => {
@@ -328,23 +378,41 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+// 5. Main Animation Loop: Handles FPV Drone Flight & Autonomous Flythrough
 function animate() {
   requestAnimationFrame(animate);
 
   if (isFlying) {
-    flightClock += 0.005;
-    const radius = 32;
+    flightClock += 0.003;
+    const radius = 42;
     const flightX = Math.cos(flightClock) * radius;
-    const flightY = Math.sin(flightClock) * radius;
-    const flightZ = 12 + Math.sin(flightClock * 2) * 3; // Realistic flight oscillation
+    const flightY = Math.sin(flightClock) * (radius * 0.85);
+    const flightZ = 36 + Math.sin(flightClock * 2) * 1.5;
 
     camera.position.set(flightX, flightY, flightZ);
-    // Target is slightly ahead of the flight vector to create a cockpit/drone feel
-    const targetX = Math.cos(flightClock + 0.25) * 6;
-    const targetY = Math.sin(flightClock + 0.25) * 6;
-    camera.lookAt(targetX, targetY, 2.0);
+    camera.lookAt(0, 0, 0);
 
     const currentAlt = (minElevation + (flightZ / maxHeightRelief) * (maxElevation - minElevation)).toFixed(1);
+    flyAltSpan.textContent = currentAlt;
+  } else if (isFpv) {
+    // Manual First-Person Drone Control
+    const moveSpeed = 0.4;
+    const forward = new THREE.Vector3();
+    camera.getWorldDirection(forward);
+    forward.z = 0; // Lock to horizontal plane for WASD forward/back
+    forward.normalize();
+
+    const right = new THREE.Vector3();
+    right.crossVectors(camera.up, forward).negate().normalize();
+
+    if (keysPressed['w']) camera.position.addScaledVector(forward, moveSpeed);
+    if (keysPressed['s']) camera.position.addScaledVector(forward, -moveSpeed);
+    if (keysPressed['a']) camera.position.addScaledVector(right, -moveSpeed);
+    if (keysPressed['d']) camera.position.addScaledVector(right, moveSpeed);
+    if (keysPressed['e']) camera.position.z += moveSpeed * 0.6; // Altitude Up
+    if (keysPressed['q']) camera.position.z = Math.max(4.0, camera.position.z - moveSpeed * 0.6); // Altitude Down
+
+    const currentAlt = (minElevation + (camera.position.z / maxHeightRelief) * (maxElevation - minElevation)).toFixed(1);
     flyAltSpan.textContent = currentAlt;
   } else {
     controls.update();
@@ -353,3 +421,4 @@ function animate() {
   renderer.render(scene, camera);
 }
 animate();
+

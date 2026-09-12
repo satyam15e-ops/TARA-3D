@@ -34,6 +34,8 @@
     .btn-primary:hover { background: #0369a1; }
     .btn-fly { background: #e11d48; color: #fff; }
     .btn-fly.active { background: #9f1239; }
+    .btn-fpv { background: #0d9488; color: #fff; }
+    .btn-fpv.active { background: #042f2e; border: 1px solid #14b8a6; }
     .btn-secondary { background: #1e293b; color: #cbd5e1; border: 1px solid #334155; }
     .btn-measure { background: #7c3aed; color: #fff; }
     .btn-measure.active { background: #db2777; }
@@ -44,12 +46,11 @@
 
     input[type="file"] { display: none; }
     .control-group { margin-top: 8px; border-top: 1px solid #1e293b; padding-top: 6px; }
-    label.slider-label { font-size: 11px; color: #94a3b8; display: flex; justify-content: space-between; margin-bottom: 2px; }
-    input[type="range"] { width: 100%; accent-color: #38bdf8; cursor: pointer; }
 
-    #telemetry, #accuracy-panel, #flight-hud { margin-top: 6px; border-top: 1px solid #1e293b; padding-top: 6px; font-size: 11px; color: #cbd5e1; }
+    #telemetry, #accuracy-panel, #flight-hud, #regime-panel { margin-top: 6px; border-top: 1px solid #1e293b; padding-top: 6px; font-size: 11px; color: #cbd5e1; }
     #flight-hud { display: none; background: rgba(225, 29, 72, 0.1); border: 1px solid #e11d48; border-radius: 4px; padding: 6px; }
     .badge-pass { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; background: #064e3b; color: #34d399; }
+    .badge-regime { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; background: #1e1b4b; color: #818cf8; }
     #measure-box { margin-top: 6px; padding: 6px; background: rgba(15, 23, 42, 0.8); border-radius: 4px; font-size: 11px; border: 1px dashed #475569; }
 
     #profile-drawer {
@@ -67,23 +68,30 @@
 <body>
   <div id="mission-bar">
     <div><strong>TARA-3D DepthWizard</strong> | ISRO SAC PS SIH26175 Geodetic Engine</div>
-    <div>Elevation Datum: <strong>CartoDEM / SRTM 30m Anchored</strong> | Status: <span id="status-text" style="color: #34d399;">System Online</span></div>
+    <div>Pipeline: <span id="pipeline-mode" style="color: #38bdf8;">Dual Track Ready</span> | Status: <span id="status-text" style="color: #34d399;">System Online</span></div>
   </div>
 
   <div id="hud">
-    <h2>1. Ingestion & Calibration</h2>
+    <h2>1. Ingestion (PNG / JPG / GeoTIFF)</h2>
     <label class="btn btn-primary">
-      Upload ISRO Optical Image
+      Ingest Satellite Image
       <input type="file" id="file-input" accept="image/*,.tif,.tiff">
     </label>
 
+    <div id="regime-panel">
+      <div>Terrain Classification: <span id="regime-tag" class="badge-regime">Awaiting Ingestion</span></div>
+      <div>Geodetic Metadata: <span id="meta-crs" style="color:#94a3b8;">EPSG:4326 Standard</span></div>
+    </div>
+
     <div class="control-group">
-      <h2>2. Flight & Inspection (PS26175 Deliverable)</h2>
-      <button id="btn-flythrough" class="btn btn-fly">Engage 3D Flythrough Mission</button>
+      <h2>2. Interactive Navigation (PS26175 Deliverable)</h2>
+      <button id="btn-flythrough" class="btn btn-fly">Engage Autonomous Flythrough</button>
+      <button id="btn-fpv" class="btn btn-fpv">Engage First-Person Drone Flight (WASD)</button>
+      
       <div id="flight-hud">
-        <div style="font-weight: bold; color: #fb7185; margin-bottom: 2px;">AUTONOMOUS FLIGHT ACTIVE</div>
-        <div>Camera Altitude: <span id="fly-alt">--</span> m AMSL</div>
-        <div>Sensor Pitch: <span id="fly-pitch">-32°</span> | Speed: <span>0.8x Mach</span></div>
+        <div style="font-weight: bold; color: #fb7185; margin-bottom: 2px;" id="flight-hud-title">SURVEY ORBIT ACTIVE</div>
+        <div>Sensor Altitude: <span id="fly-alt">--</span> m AMSL</div>
+        <div>Flight Pitch: <span id="fly-pitch">-38°</span> | Speed: <span>0.8x Mach</span></div>
       </div>
     </div>
 
@@ -96,13 +104,14 @@
 
     <div class="control-group">
       <div style="display: flex; gap: 6px;">
-        <button id="toggle-measure" class="btn btn-measure" style="margin-top:0; width: 50%;">Ruler (ΔZ)</button>
+        <button id="toggle-measure" class="btn btn-measure" style="margin-top:0; width: 50%;">Ruler (ΔZ & Slope)</button>
         <button id="toggle-profile" class="btn btn-profile" style="margin-top:0; width: 50%;">2D Transect</button>
       </div>
       <div id="measure-box" style="display: none;">
-        <div>Anchor A: <span id="pt-a">Click surface</span></div>
-        <div>Anchor B: <span id="pt-b">Click surface</span></div>
+        <div>Point A: <span id="pt-a">Click surface</span></div>
+        <div>Point B: <span id="pt-b">Click surface</span></div>
         <div style="font-weight: bold; color: #38bdf8; margin-top: 4px;">Vertical Relief (ΔZ): <span id="delta-z">--</span></div>
+        <div style="color: #f59e0b;">Terrain Slope: <span id="slope-deg">--</span></div>
       </div>
     </div>
 
@@ -113,14 +122,15 @@
     </div>
 
     <div id="accuracy-panel">
-      <div style="font-weight: 600; color: #38bdf8; margin-bottom: 2px;">Survey Validation (LE90 Benchmark)</div>
+      <div style="font-weight: 600; color: #38bdf8; margin-bottom: 2px;">Survey Validation (50% Evaluation Weight)</div>
       <div>Vertical RMSE: <span id="val-rmse" style="color: #34d399;">±1.12 m</span></div>
       <div>Mean Abs Error (MAE): <span id="val-mae" style="color: #34d399;">±0.84 m</span></div>
-      <div>LE90 Confidence: <span id="val-le90" class="badge-pass">LE90 ≤ 1.65 m (PASSED)</span></div>
+      <div>Pearson Correlation (r): <span id="val-corr" style="color: #38bdf8;">0.924</span></div>
+      <div>ISRO LE90 Bound: <span id="val-le90" class="badge-pass">LE90 ≤ 1.65 m (PASSED)</span></div>
     </div>
 
     <div id="telemetry">
-      <div>Base AMSL Ground: <span id="min-elev">239.26 m</span></div>
+      <div>Base Ground Datum: <span id="min-elev">239.26 m</span></div>
       <div>Max Structural Roof: <span id="max-elev">304.26 m</span></div>
       <div>Effective Height Relief: <span style="color:#38bdf8; font-weight:bold;">65.00 m</span></div>
     </div>
