@@ -23,15 +23,20 @@ if __name__ == "__main__":
     host_ip = get_ip_address()
     print("=" * 80)
     print("  TARA-3D | SINGLE-VIEW HEIGHT ESTIMATION AND 3D FLYTHROUGH")
-    print("  ISRO SAC SIH26175 SOVEREIGN PRODUCTION SERVER")
+    print("  LIVE DEVELOPMENT & PRODUCTION SERVER (AUTO-RELOAD ACTIVE)")
     print("=" * 80)
-    print(f"[*] Serving Unified Mission Cockpit & Geodetic Engine on Port 8080")
-    print(f"[*] Local Workstation Access : http://localhost:8080")
-    print(f"[*] Network / Remote Access  : http://{host_ip}:8080")
+    print(f"[*] Local Workstation : http://localhost:8080")
+    print(f"[*] Local Network     : http://{host_ip}:8080")
     print("=" * 80)
 
-    # Launch browser automatically
+    # Launch browser on startup
     threading.Thread(target=open_browser, daemon=True).start()
 
-    # Single unified server on 0.0.0.0:8080
-    uvicorn.run("backend.app:app", host="0.0.0.0", port=8080, log_level="info")
+    # reload=True watches for any python file edits automatically
+    uvicorn.run(
+        "backend.app:app",
+        host="0.0.0.0",
+        port=8080,
+        reload=True,
+        reload_dirs=["backend"]
+    )
