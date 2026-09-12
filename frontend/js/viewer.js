@@ -76,7 +76,6 @@ material.onBeforeCompile = (shader) => {
 let terrainMesh = new THREE.Mesh(geometry, material);
 scene.add(terrainMesh);
 
-// Smooth Transitions
 let targetCamPos = null;
 let targetLookAt = null;
 let transitionProgress = 1.0;
@@ -110,7 +109,6 @@ if (view3dBtn) {
   });
 }
 
-// Navigation & FPV
 let isFlying = false;
 let isFpv = false;
 let flightClock = 0;
@@ -197,7 +195,6 @@ document.addEventListener('mousemove', (event) => {
 window.addEventListener('keydown', (e) => { keysPressed[e.key.toLowerCase()] = true; });
 window.addEventListener('keyup', (e) => { keysPressed[e.key.toLowerCase()] = false; });
 
-// Raycasting Telemetry
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
@@ -229,7 +226,6 @@ window.addEventListener('mousemove', (e) => {
   }
 });
 
-// File Ingestion Pipeline
 const fileInput = document.getElementById('file-input');
 if (fileInput) {
   fileInput.addEventListener('change', async (e) => {
@@ -245,10 +241,7 @@ if (fileInput) {
 
     try {
       const res = await fetch('/api/reconstruct', { method: 'POST', body: formData });
-      if (!res.ok) {
-        const errPayload = await res.json().catch(() => ({}));
-        throw new Error(errPayload.message || `Server HTTP ${res.status}`);
-      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
 
       document.getElementById('pipeline-mode').textContent = data.pipeline_mode;
@@ -325,12 +318,11 @@ if (fileInput) {
     } catch (err) {
       statusText.textContent = "Pipeline Error";
       statusText.style.color = "#f87171";
-      console.error("Reconstruction Failure:", err);
+      console.error(err);
     }
   });
 }
 
-// Layer Toggles
 document.getElementById('toggle-rgb')?.addEventListener('click', () => {
   if (rgbTexture) {
     terrainMesh.material.map = rgbTexture;
@@ -349,7 +341,7 @@ document.getElementById('toggle-turbo')?.addEventListener('click', () => {
   }
 });
 
-// Disaster Triage Tools
+// DISASTER TRIAGE SUITE
 let floodMesh = null;
 let isFloodSimActive = false;
 const floodBtn = document.getElementById('btn-flood-sim');
@@ -395,7 +387,7 @@ if (helipadBtn) {
 
     if (isActive && rawGridMatrix) {
       const pos = geometry.attributes.position;
-      const step = 20; // Coarser sampling to prevent overlapping ring clusters
+      const step = 20;
       const minRoofClearance = minElevation + (maxElevation - minElevation) * 0.45;
 
       for (let r = step; r < GRID_SIZE - step; r += step) {
@@ -404,7 +396,6 @@ if (helipadBtn) {
           const z = pos.getZ(idx);
           const elev = minElevation + (z / verticalExaggeration) * (maxElevation - minElevation);
 
-          // Check surrounding 4-neighbor local flatness
           const zNorth = pos.getZ((r - 2) * GRID_SIZE + c);
           const zSouth = pos.getZ((r + 2) * GRID_SIZE + c);
           const zWest  = pos.getZ(r * GRID_SIZE + (c - 2));
@@ -417,24 +408,21 @@ if (helipadBtn) {
             Math.abs(z - zEast)
           );
 
-          // Only select flat structural rooftops with low slope deviation
           if (elev > minRoofClearance && maxSlopeDelta < 0.22) {
             const group = new THREE.Group();
 
-            // Outer landing zone circle
-            const ringGeo = new THREE.RingGeometry(0.85, 1.1, 32);
+            const ringGeo = new THREE.RingGeometry(0.85, 1.15, 32);
             const ringMat = new THREE.MeshBasicMaterial({ color: 0x10b981, side: THREE.DoubleSide });
             const ring = new THREE.Mesh(ringGeo, ringMat);
 
-            // Inner crosshair "H" dot
-            const centerGeo = new THREE.CircleGeometry(0.25, 16);
+            const centerGeo = new THREE.CircleGeometry(0.28, 16);
             const centerMat = new THREE.MeshBasicMaterial({ color: 0x34d399, side: THREE.DoubleSide });
             const dot = new THREE.Mesh(centerGeo, centerMat);
 
             group.add(ring);
             group.add(dot);
 
-            // Keep flat in plane with the terrain (+0.12m offset to prevent Z-fighting)
+            // Plane is on XY; mesh position uses Z for height. No tilt needed.
             group.position.set(pos.getX(idx), pos.getY(idx), z + 0.12);
             scene.add(group);
             helipadMarkers.push(group);
@@ -443,7 +431,6 @@ if (helipadBtn) {
       }
     }
   });
-}
 }
 
 // Measurement & Transects
@@ -598,7 +585,6 @@ window.addEventListener('click', (e) => {
   }
 });
 
-// Deliverables
 document.getElementById('export-geotiff')?.addEventListener('click', () => {
   window.open('/api/download-geotiff', '_blank');
 });
@@ -624,7 +610,6 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// Main Loop
 function animate() {
   requestAnimationFrame(animate);
 
@@ -663,5 +648,3 @@ function animate() {
   renderer.render(scene, camera);
 }
 animate();
-
-
