@@ -1,42 +1,4 @@
 ﻿import uvicorn
-import webbrowser
-import threading
-import time
-import socket
-
-def get_ip_address():
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(('8.8.8.8', 80))
-        ip = s.getsockname()[0]
-    except Exception:
-        ip = '127.0.0.1'
-    finally:
-        s.close()
-    return ip
-
-def open_browser():
-    time.sleep(2.0)
-    webbrowser.open("http://127.0.0.1:8080")
 
 if __name__ == "__main__":
-    host_ip = get_ip_address()
-    print("=" * 80)
-    print("  TARA-3D | SINGLE-VIEW HEIGHT ESTIMATION AND 3D FLYTHROUGH")
-    print("  LIVE DEVELOPMENT & PRODUCTION SERVER (AUTO-RELOAD ACTIVE)")
-    print("=" * 80)
-    print(f"[*] Local Workstation : http://localhost:8080")
-    print(f"[*] Local Network     : http://{host_ip}:8080")
-    print("=" * 80)
-
-    # Launch browser on startup
-    threading.Thread(target=open_browser, daemon=True).start()
-
-    # reload=True watches for any python file edits automatically
-    uvicorn.run(
-        "backend.app:app",
-        host="0.0.0.0",
-        port=8080,
-        reload=True,
-        reload_dirs=["backend"]
-    )
+    uvicorn.run("backend.app:app", host="127.0.0.1", port=8080, reload=True)
