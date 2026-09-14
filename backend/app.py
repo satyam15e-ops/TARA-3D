@@ -1,18 +1,30 @@
-﻿from fastapi import FastAPI, UploadFile, File, Form, Query
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
-from PIL import Image
-import numpy as np
-import io
+﻿import io
 import os
 import urllib.request
 import h5py
+import numpy as np
 import rasterio
+from PIL import Image
 from scipy.ndimage import zoom, label
-from backend.depth_engine import DepthEngine
+from fastapi import FastAPI, UploadFile, File, Form, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse
+
 from backend.geospatial_engine import GeospatialCalibrationEngine
 from backend.legend_generator import export_metric_dsm_with_legend
+from backend.tiler import process_large_raster_tiled
+
+try:
+    from backend.onnx_depth_engine import ONNXDepthEngine
+    engine = ONNXDepthEngine()
+    ENGINE_TYPE = "ONNX Runtime (Optimized FP32/FP16)"
+    print("[*] Engine initialized: ONNX Runtime Engine")
+except Exception as e:
+    print(f"[!] Falling back to standard PyTorch DepthEngine: {e}")
+    from backend.depth_engine import DepthEngine
+    engine = DepthEngine()
+    ENGINE_TYPE = "PyTorch Native"
 
 app = FastAPI(title="TARA-3D Disaster Intelligence Engine")
 
@@ -29,32 +41,35 @@ os.makedirs("inputs", exist_ok=True)
 app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
 app.mount("/inputs", StaticFiles(directory="inputs"), name="inputs")
 
-engine = DepthEngine()
 geo_calibrator = GeospatialCalibrationEngine()
 LATEST_GEOTIFF_PATH = "outputs/TARA3D_Calibrated_DSM.tif"
 
 CURRENT_TACTICAL_CONTEXT = {
     "dsm": None,
-    "bounds": [77.200, 28.610, 77.215, 28.625],
+    "bounds": [73.845, 18.510, 73.868, 18.530],
     "crs": "EPSG:4326",
-    "base_elev": 239.26,
-    "max_elev": 304.26,
+    "base_elev": 890.0,
+    "max_elev": 924.2,
     "pixel_res_m": 0.5
 }
 
-# Verified tiles from official GAMUS dataset
 GAMUS_REMOTE_TILES = [
     "DC_03_26_RGB.h5",
     "DC_05_28_RGB.h5",
     "DC_07_21_RGB.h5"
 ]
 
-def process_image_array(image: Image.Image, base_datum_m=239.26, max_relief_m=65.0, bounds=(77.200, 28.610, 77.215, 28.625), native_crs="EPSG:4326", native_transform=None, is_georeferenced=False, custom_regime="URBAN_STRUCTURAL"):
-    max_dim = 1024
-    if max(image.size) > max_dim:
-        image.thumbnail((max_dim, max_dim), Image.Resampling.BICUBIC)
+@app.get("/healthz")
+def health_check():
+    return {
+        "status": "healthy",
+        "engine": ENGINE_TYPE,
+        "active_bounds": CURRENT_TACTICAL_CONTEXT["bounds"],
+        "crs": CURRENT_TACTICAL_CONTEXT["crs"]
+    }
 
-    rel_depth = engine.infer(image)
+def process_image_array(image: Image.Image, base_datum_m=890.0, max_relief_m=34.2, bounds=(73.845, 18.510, 73.868, 18.530), native_crs="EPSG:4326", native_transform=None, is_georeferenced=False, custom_regime="URBAN_STRUCTURAL"):
+    rel_depth = process_large_raster_tiled(image, engine.infer, tile_size=512, overlap=64)
     h, w = rel_depth.shape
 
     x = np.linspace(0, 1, w)
@@ -68,7 +83,7 @@ def process_image_array(image: Image.Image, base_datum_m=239.26, max_relief_m=65
     if custom_regime:
         regime = custom_regime
 
-    mode_type = "Absolute DSM (Metric AMSL)" if is_georeferenced else "Relative DSM (SRTM Anchored)"
+    mode_type = "Absolute DSM (Metric AMSL)" if is_georeferenced else f"Relative DSM (SRTM Anchored | {ENGINE_TYPE})"
     elev_min = float(np.min(metric_dsm))
     elev_max = float(np.max(metric_dsm))
 
@@ -126,16 +141,15 @@ async def stream_gamus_tile(split: str = Query("val"), index: int = Query(0)):
         preview_path = "outputs/streamed_preview.png"
         img.save(preview_path)
         
-        res = process_image_array(img, base_datum_m=242.0, max_relief_m=62.0, custom_regime="REMOTE_GAMUS_STREAM")
+        res = process_image_array(img, base_datum_m=890.0, max_relief_m=34.2, custom_regime="REMOTE_GAMUS_STREAM")
         res["image_url"] = f"/{preview_path}?v={np.random.randint(10000)}"
         res["file_name"] = tile_name
         res["total_available_remote"] = len(GAMUS_REMOTE_TILES)
         return res
     except Exception as e:
-        # Fallback to local inputs if offline
         fallback_path = "inputs/sample_urban.png" if os.path.exists("inputs/sample_urban.png") else "inputs/GAMUS_DC_03_26.png"
         img = Image.open(fallback_path).convert("RGB")
-        res = process_image_array(img, base_datum_m=242.0, max_relief_m=62.0, custom_regime="REMOTE_GAMUS_STREAM")
+        res = process_image_array(img, base_datum_m=890.0, max_relief_m=34.2, custom_regime="REMOTE_GAMUS_STREAM")
         res["image_url"] = f"/{fallback_path}?v={np.random.randint(10000)}"
         res["file_name"] = f"LOCAL_FALLBACK_{os.path.basename(fallback_path)}"
         res["total_available_remote"] = len(GAMUS_REMOTE_TILES)
@@ -144,10 +158,10 @@ async def stream_gamus_tile(split: str = Query("val"), index: int = Query(0)):
 @app.get("/api/load-sample")
 async def load_sample(scene_id: str = Query("gamus_suburban")):
     mapping = {
-        "gamus_suburban": {"file": "inputs/GAMUS_DC_03_26.png", "relief": 55.0, "base": 240.0, "regime": "SUBURBAN_CANOPY"},
-        "urban_dense": {"file": "inputs/sample_urban.png", "relief": 78.0, "base": 235.0, "regime": "URBAN_STRUCTURAL"},
-        "hilly_ridge": {"file": "inputs/sample_mountain.png", "relief": 85.0, "base": 310.0, "regime": "NATURAL_RIDGE_TOPOGRAPHIC"},
-        "sparse_arid": {"file": "inputs/sample_sparse.png", "relief": 45.0, "base": 220.0, "regime": "SPARSE_VALLEY"}
+        "gamus_suburban": {"file": "inputs/GAMUS_DC_03_26.png", "relief": 34.2, "base": 890.0, "regime": "PUNE_SUBURBAN_CANOPY"},
+        "urban_dense": {"file": "inputs/sample_urban.png", "relief": 48.0, "base": 890.0, "regime": "PUNE_CORE_URBAN"},
+        "hilly_ridge": {"file": "inputs/sample_mountain.png", "relief": 160.0, "base": 920.0, "regime": "WESTERN_GHATS_RIDGE"},
+        "sparse_arid": {"file": "inputs/sample_sparse.png", "relief": 28.0, "base": 650.0, "regime": "DECCAN_PLATEAU_SPARSE"}
     }
     item = mapping.get(scene_id, mapping["gamus_suburban"])
     file_path = item["file"]
@@ -162,12 +176,12 @@ async def load_sample(scene_id: str = Query("gamus_suburban")):
 @app.post("/api/reconstruct")
 async def reconstruct(
     file: UploadFile = File(...),
-    base_datum_m: float = Form(239.26),
-    max_relief_m: float = Form(65.0),
-    min_lat: float = Form(28.610),
-    max_lat: float = Form(28.625),
-    min_lon: float = Form(77.200),
-    max_lon: float = Form(77.215)
+    base_datum_m: float = Form(890.0),
+    max_relief_m: float = Form(34.2),
+    min_lat: float = Form(18.510),
+    max_lat: float = Form(18.530),
+    min_lon: float = Form(73.845),
+    max_lon: float = Form(73.868)
 ):
     try:
         contents = await file.read()
@@ -227,7 +241,7 @@ def detect_certified_helipads():
     base = CURRENT_TACTICAL_CONTEXT["base_elev"]
     dy, dx = np.gradient(dsm)
     slope_deg = np.degrees(np.arctan(np.sqrt(dx**2 + dy**2)))
-    flat_elevated = ((dsm - base) > 10.0) & (slope_deg < 3.0)
+    flat_elevated = ((dsm - base) > 8.0) & (slope_deg < 3.0)
     labeled, num_features = label(flat_elevated)
     pixel_area_m2 = (CURRENT_TACTICAL_CONTEXT["pixel_res_m"]) ** 2
     min_lon, min_lat, max_lon, max_lat = CURRENT_TACTICAL_CONTEXT["bounds"]
@@ -240,8 +254,8 @@ def detect_certified_helipads():
             r_c, c_c = np.mean(points, axis=0).astype(int)
             elev = float(dsm[r_c, c_c])
             candidates.append({
-                "lat": round(min_lat + ((h - r_c) / h) * (max_lat - min_lat), 5),
-                "lon": round(min_lon + (c_c / w) * (max_lon - min_lon), 5),
+                "lat": round(min_lat + ((h - r_c) / h) * (max_lat - min_lat), 4),
+                "lon": round(min_lon + (c_c / w) * (max_lon - min_lon), 4),
                 "elevation_amsl_m": round(elev, 1),
                 "pad_area_m2": round(pad_area_m2, 1),
                 "mean_slope_deg": round(float(np.mean(slope_deg[labeled == feat_id])), 1),
