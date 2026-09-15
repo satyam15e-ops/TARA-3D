@@ -1,6 +1,27 @@
-﻿__pycache__/
-*.py[cod]
+﻿# Virtual Environment
 venv/
+ENV/
+env/
 .env
-outputs/*
-!outputs/.gitkeep
+
+# Python Bytecode & Caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Large Output Files & Temporary Ingestions (>100MB rejection risk)
+outputs/*.tif
+outputs/*.tiff
+outputs/task_*
+inputs/*.tif
+inputs/*.tiff
+
+# Large Model Weights (Keep .onnx out of Git or use Git LFS)
+*.onnx
+
+# OS & Editor Specific
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
