@@ -1,5 +1,5 @@
 ﻿// ============================================================================
-// TARA-3D: STRICT rDSM / rnDSM & ABSOLUTE DSM / nDSM TELEMETRY ENGINE
+// TARA-3D: FULL PRODUCTION WEBGL CLIENT & TELEMETRY ENGINE
 // ============================================================================
 
 const container = document.getElementById('canvas-container');
@@ -44,8 +44,6 @@ let rawTreeMask = null;
 let cachedHelipads = [];
 let currentVisualMode = "satellite";
 let isMetricMode = true;
-
-const AUTHENTIC_VERTICAL_SCALE = 3.2;
 
 const floodGroup = new THREE.Group();
 const helipadGroup = new THREE.Group();
@@ -327,7 +325,7 @@ function renderHelipads(helipadList) {
     const normX = ((padData.lon - currentBounds[0]) / (currentBounds[2] - currentBounds[0]) - 0.5) * 50;
     const normY = ((padData.lat - currentBounds[1]) / (currentBounds[3] - currentBounds[1]) - 0.5) * 50;
     const elevNorm = (padData.elevation_amsl_m - minElevation) / (maxElevation - minElevation || 1);
-    padMesh.position.set(normX, normY, elevNorm * AUTHENTIC_VERTICAL_SCALE + 0.2);
+    padMesh.position.set(normX, normY, elevNorm * 4.2 + 0.2);
     helipadGroup.add(padMesh);
   });
 }
@@ -353,14 +351,14 @@ function applyElevationData(data, imageUrl) {
 
   const pos = geometry.attributes.position;
   const elevRange = (maxElevation - minElevation) || 1.0;
+  const verticalScale = isMetricMode ? 3.6 : 2.5;
 
   for (let r = 0; r < GRID_SIZE; r++) {
     for (let c = 0; c < GRID_SIZE; c++) {
       const idx = r * GRID_SIZE + c;
-      const isBorder = (r === 0 || r === GRID_SIZE - 1 || c === 0 || c === GRID_SIZE - 1);
       const rawZ = rawGridMatrix[r] ? rawGridMatrix[r][c] : minElevation;
-      const normZ = isBorder ? 0.0 : THREE.MathUtils.clamp((rawZ - minElevation) / elevRange, 0.0, 1.0);
-      pos.setZ(idx, normZ * AUTHENTIC_VERTICAL_SCALE);
+      const normZ = THREE.MathUtils.clamp((rawZ - minElevation) / elevRange, 0.0, 1.0);
+      pos.setZ(idx, normZ * verticalScale);
     }
   }
   pos.needsUpdate = true;
@@ -600,7 +598,7 @@ async function toggleFloodAnalysis(btn) {
       })
     );
     const elevRange = (maxElevation - minElevation) || 1.0;
-    floodPlane.position.z = THREE.MathUtils.clamp((5.0 / elevRange) * AUTHENTIC_VERTICAL_SCALE, 0.4, 2.0);
+    floodPlane.position.z = THREE.MathUtils.clamp((5.0 / elevRange) * 3.6, 0.4, 2.0);
     floodGroup.add(floodPlane);
 
     isFloodActive = true;
@@ -685,7 +683,7 @@ async function toggleUavClearance(btn) {
         side: THREE.DoubleSide
       })
     );
-    uavCeiling.position.z = AUTHENTIC_VERTICAL_SCALE + 1.0;
+    uavCeiling.position.z = 4.2;
     uavGroup.add(uavCeiling);
 
     isUavActive = true;
