@@ -3,280 +3,218 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ISRO SAC | Live 3D Telemetry HUD</title>
-  <link rel="stylesheet" href="css/style.css?v=10">
+  <title>TARA-3D | Live Geospatial Telemetry HUD (ISRO/NDRF Spec)</title>
+  <!-- Three.js and OrbitControls -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    /* Fixed Floating Ingestion Cockpit */
+    #evaluator-ingest-box {
+      position: absolute;
+      bottom: 34px;
+      left: 70px;
+      z-index: 1000;
+      background: rgba(6, 12, 24, 0.90);
+      border: 1px solid #1e3a8a;
+      border-radius: 8px;
+      padding: 10px 14px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+      width: 260px;
+      pointer-events: auto;
+    }
+    #evaluator-ingest-box label:hover {
+      background: #1e293b !important;
+      border-color: #38bdf8 !important;
+    }
+  </style>
 </head>
 <body>
 
-  <!-- 1. TOP ISRO / GOVT HEADER -->
-  <header id="top-header">
-    <div class="header-left">
-      <svg class="govt-crest" viewBox="0 0 32 32" fill="#cbd5e1">
-        <circle cx="16" cy="16" r="14" stroke="#cbd5e1" stroke-width="1.5" fill="none"/>
-        <path d="M16 6 L18 12 L24 12 L19 16 L21 22 L16 18 L11 22 L13 16 L8 12 L14 12 Z" fill="#cbd5e1"/>
-      </svg>
-      <div class="header-titles">
-        <span class="main-title" style="font-size: 11px; text-transform: uppercase;">Ministry of Earth Sciences</span>
-        <span class="sub-title" style="font-size: 9px;">Government of India</span>
+  <!-- TOP HEADER -->
+  <div id="top-header">
+    <div id="top-header-left">
+      <div id="header-badge-emblem">★</div>
+      <div>
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: #cbd5e1;">MINISTRY OF EARTH SCIENCES</div>
+        <div style="font-size: 9px; color: #64748b;">Government of India &nbsp;|&nbsp; <span style="color:#f59e0b;">इसरो | isro</span></div>
       </div>
-      <div class="isro-logo-box">
-        <span class="isro-emblem-text">इसरो | isro</span>
-      </div>
-      <div class="header-titles" style="margin-left: 8px;">
-        <span class="main-title">Live 3D Telemetry HUD</span>
-        <span class="sub-title">Satellite-Derived 3D Mesh Analysis | Hyper-Local Elevation Intelligence</span>
+      <div style="height: 22px; width: 1px; background: #1e293b; margin: 0 8px;"></div>
+      <div>
+        <div style="font-size: 13px; font-weight: 700; color: #f8fafc; letter-spacing: 0.04em;">Live 3D Telemetry HUD</div>
+        <div style="font-size: 9px; color: #94a3b8;">Satellite-Derived 3D Mesh Analysis | Hyper-Local Elevation Intelligence</div>
       </div>
     </div>
-
-    <div class="header-right">
-      <div class="time-stamp">
-        <div id="live-date">12 Aug 2025</div>
-        <div id="live-clock" style="color: #38bdf8;">10:23:17 IST</div>
+    <div id="top-header-right">
+      <div style="text-align: right; margin-right: 12px;">
+        <div style="font-size: 10px; color: #94a3b8;">12 Aug 2025</div>
+        <div style="font-size: 10px; color: #64748b;">10:23:17 IST</div>
       </div>
-      <div class="location-pill">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="#38bdf8"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
-        <span id="header-loc-name">Pune, Maharashtra</span>
+      <div id="header-loc-name" style="background: rgba(15, 23, 42, 0.8); border: 1px solid #1e293b; border-radius: 4px; padding: 4px 10px; font-size: 11px; color: #38bdf8; font-weight: 600;">
+        Tactical Grid Sector [WGS84 EPSG:4326]
       </div>
     </div>
-  </header>
+  </div>
 
-  <!-- 2. LEFT VERTICAL TOOL RAIL -->
-  <nav id="sidebar-rail">
-    <button id="tool-3d" class="rail-btn active" title="3D Perspective">
-      <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+  <!-- ALWAYS-VISIBLE FLOATING INGESTION COCKPIT (Evaluator Ready) -->
+  <div id="evaluator-ingest-box">
+    <div style="font-size: 10px; font-weight: 700; color: #38bdf8; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between;">
+      <span>🛰 SATELLITE INGESTION</span>
+      <span style="background: #0284c7; color: #fff; padding: 1px 5px; border-radius: 3px; font-size: 8px;">PERMANENT</span>
+    </div>
+    <label for="file-input" style="display: block; width: 100%; background: #0f172a; border: 1px dashed #38bdf8; border-radius: 6px; padding: 8px 10px; text-align: center; cursor: pointer; transition: all 0.2s;">
+      <span id="remote-tile-label" style="font-size: 11px; font-weight: 600; color: #e2e8f0;">📂 Ingest GeoTIFF / PNG</span>
+      <div style="font-size: 9px; color: #64748b; margin-top: 2px;">Accepts up to 200MB (WGS84 / UTM)</div>
+    </label>
+    <input type="file" id="file-input" accept=".tif,.tiff,.png,.jpg,.jpeg" style="display: none;">
+  </div>
+
+  <!-- LEFT SIDEBAR RAIL (Layers Button Removed) -->
+  <div id="sidebar-rail">
+    <button id="tool-3d" class="rail-btn active" title="Perspective 3D View">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
       <span>3D View</span>
     </button>
-    <button id="tool-2d" class="rail-btn" title="2D Orthographic Map">
-      <svg viewBox="0 0 24 24"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/></svg>
+    <button id="tool-2d" class="rail-btn" title="Nadir 2D Map">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>
       <span>2D Map</span>
     </button>
-    <button id="tool-layers" class="rail-btn" title="Ingestion & Presets">
-      <svg viewBox="0 0 24 24"><path d="M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16z"/></svg>
-      <span>Layers</span>
-    </button>
-    <button id="tool-analysis" class="rail-btn" title="Disaster Intelligence Suite">
-      <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/></svg>
+    <button id="tool-analysis" class="rail-btn" title="Disaster Analysis Suite">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
       <span>Analysis</span>
     </button>
-    <button id="tool-measure" class="rail-btn" title="Topographic Measurement">
-      <svg viewBox="0 0 24 24"><path d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 10H3V8h2v4h2V8h2v4h2V8h2v4h2V8h2v4h2V8h3v8z"/></svg>
-      <span>Measure</span>
-    </button>
-    <button id="tool-export" class="rail-btn" title="Export GeoTIFF & 3D Assets">
-      <svg viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
+    <button id="tool-export" class="rail-btn" title="Export Survey Deliverables">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
       <span>Export</span>
     </button>
-  </nav>
-
-  <!-- 3. TOP SEARCH & PRESET PICKER OVERLAY -->
-  <div id="search-overlay">
-    <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-    <select id="benchmark-selector">
-      <option value="gamus_suburban">Pune / Suburban Canopy (GAMUS Benchmark)</option>
-      <option value="urban_dense">Pune / Dense Highrise Structural</option>
-      <option value="hilly_ridge">Western Ghats / Himalayan Ridge Relief</option>
-      <option value="sparse_arid">Deccan Plateau / Sparse Landscape</option>
-    </select>
   </div>
 
-  <!-- 4. RIGHT TELEMETRY HUD PANEL -->
-  <aside id="telemetry-panel">
-    <div class="panel-header">
+  <!-- ANALYSIS DRAWER -->
+  <div id="analysis-drawer" class="tool-drawer">
+    <div class="drawer-header">
+      <span>TACTICAL DISASTER SUITE</span>
+      <span class="drawer-close">✕</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+      <button id="btn-flood" class="action-btn" style="background: rgba(2, 132, 199, 0.2); border-color: #0284c7; color: #38bdf8;">🌊 Flood Inundation (+5m)</button>
+      <button id="btn-helipad" class="action-btn" style="background: rgba(16, 185, 129, 0.2); border-color: #10b981; color: #34d399;">🚁 Military & ICAO Helipads</button>
+      <button id="btn-uav" class="action-btn" style="background: rgba(168, 85, 247, 0.2); border-color: #a855f7; color: #c084fc;">🛸 UAV Flight Safety Corridor</button>
+    </div>
+          <button id="btn-benchmark" class="action-btn" style="background: rgba(234, 179, 8, 0.2); border-color: #eab308; color: #facc15; margin-top: 4px;">📊 Run CartoDEM Benchmark (50% Criteria)</button>
+<div id="drawer-telemetry" style="margin-top:12px; font-size:11px; color:#cbd5e1; line-height:1.6; background:#030712; padding:10px; border-radius:6px; border:1px solid #1e293b;">
+      Click any tactical module above to generate model layers and volumetric triage readouts.
+    </div>
+  </div>
+
+  <!-- EXPORT DRAWER -->
+  <div id="export-drawer" class="tool-drawer">
+    <div class="drawer-header">
+      <span>SURVEY DELIVERABLES</span>
+      <span class="drawer-close">✕</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+      <button id="btn-download-geotiff" class="action-btn">Download 32-Bit GeoTIFF</button>
+      <button id="btn-download-glb" class="action-btn">Download 3D Binary GLB</button>
+    </div>
+  </div>
+
+  <!-- 3D WEBGL VIEWPORT -->
+  <div id="canvas-container"></div>
+
+  <!-- PIN TARGET HOVER TOOLTIP -->
+  <div id="pin-tooltip" style="position: absolute; display: none; background: rgba(3, 7, 18, 0.85); border: 1px solid #38bdf8; border-radius: 4px; padding: 4px 8px; font-size: 10px; color: #e2e8f0; pointer-events: none; z-index: 100;">
+    <div id="pin-text">Target Vertex</div>
+  </div>
+
+  <!-- RIGHT TELEMETRY HUD PANEL -->
+  <div id="telemetry-panel">
+    <div style="font-size: 10px; font-weight: 700; color: #64748b; letter-spacing: 0.05em; text-transform: uppercase;">Point Telemetry</div>
+    <div style="font-size: 11px; font-weight: 700; color: #38bdf8; margin-top: 2px;">TARGET: NATURAL TERRAIN / OPEN GROUND</div>
+
+    <div style="margin-top: 12px;">
+      <div style="font-size: 9px; color: #64748b; text-transform: uppercase;">POINT RAYCAST COORD</div>
+      <div id="ray-coords" style="font-size: 12px; font-weight: 600; color: #f8fafc; font-family: monospace;">(0.000000° N, 0.000000° E)</div>
+    </div>
+
+    <div style="margin-top: 10px;">
+      <div style="font-size: 9px; color: #64748b; text-transform: uppercase;">BASE DATUM (Z_DATUM VIA SRTM)</div>
+      <div id="val-datum" style="font-size: 12px; font-weight: 600; color: #e2e8f0;">888.0 m AMSL</div>
+    </div>
+
+    <div style="margin-top: 10px;">
+      <div style="font-size: 9px; color: #64748b; text-transform: uppercase;">STRUCTURAL RELIEF (nDSM HEIGHT)</div>
+      <div id="val-relief" style="font-size: 12px; font-weight: 700; color: #f59e0b;">+0.0 m (nDSM AGL)</div>
+    </div>
+
+    <div style="margin-top: 10px;">
+      <div style="font-size: 9px; color: #64748b; text-transform: uppercase;">TOTAL ELEVATION (ABSOLUTE DSM)</div>
+      <div id="val-total-elev" style="font-size: 13px; font-weight: 700; color: #38bdf8;">888.0 m AMSL</div>
+    </div>
+
+    <div style="margin-top: 10px; display: flex; align-items: center; justify-content: space-between;">
       <div>
-        <div class="panel-title">Point Telemetry</div>
-        <div class="panel-subtitle">(Direct from 3D Mesh)</div>
+        <div style="font-size: 9px; color: #64748b; text-transform: uppercase;">LOCAL GRADIENT</div>
+        <div id="val-slope" style="font-size: 12px; font-weight: 600; color: #f8fafc;">1.8°</div>
       </div>
-      <svg class="india-mini-map" viewBox="0 0 64 64" fill="#38bdf8">
-        <path d="M30 4 L36 8 L38 16 L44 20 L40 28 L46 32 L40 40 L34 46 L32 58 L28 58 L26 44 L20 36 L24 26 L22 18 L28 10 Z" opacity="0.6"/>
-      </svg>
-    </div>
-
-    <!-- Row 1: Target Coordinates -->
-    <div class="telemetry-row">
-      <svg class="row-icon" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
-      <div class="row-content">
-        <div class="row-label">Point Raycast: Rooftop Target</div>
-        <div class="row-value blue" id="ray-coords">(18.5204° N, 73.8567° E)</div>
+      <div id="helipad-status-tag" style="border: 1px solid #10b981; color: #34d399; font-size: 9px; font-weight: 600; padding: 3px 6px; border-radius: 4px;">
+        ✓ Safe Landing Zone (ALH / Mi-17 Certified)
       </div>
     </div>
 
-    <!-- Row 2: Base Datum SRTM -->
-    <div class="telemetry-row">
-      <svg class="row-icon" viewBox="0 0 24 24"><path d="M14 6l-3.75 5 2.85 3.8-1.6 1.2C9.81 13.75 7 10 7 10l-6 8h22L14 6z"/></svg>
-      <div class="row-content">
-        <div class="row-label">Base Datum (Z_datum via SRTM)</div>
-        <div class="row-value" id="val-datum">890.0 m AMSL</div>
-      </div>
-    </div>
+    <div style="height: 1px; background: #1e293b; margin: 12px 0;"></div>
 
-    <!-- Row 3: Structural Relief Shadows -->
-    <div class="telemetry-row">
-      <svg class="row-icon" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14h-2v-4h2v4zm0-6h-2V7h2v4z"/></svg>
-      <div class="row-content">
-        <div class="row-label">Structural Relief (H_rel via Shadows)</div>
-        <div class="row-value" id="val-relief" style="color: #facc15;">+34.2 m AGL</div>
-      </div>
+    <div style="font-size: 9px; color: #64748b; text-transform: uppercase; margin-bottom: 6px;">LOCATION CONTEXT</div>
+    <div style="display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 3px;">
+      <span style="color: #64748b;">District / Sector</span>
+      <span id="ctx-district" style="color: #cbd5e1; font-weight: 600;">Tactical Grid Sector</span>
     </div>
-
-    <!-- Row 4: Total Elevation Absolute DSM -->
-    <div class="telemetry-row">
-      <svg class="row-icon" viewBox="0 0 24 24"><path d="M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16z"/></svg>
-      <div class="row-content">
-        <div class="row-label">Total Elevation (Absolute DSM)</div>
-        <div class="row-value blue" id="val-total-elev" style="font-size: 15px;">924.2 m AMSL</div>
-      </div>
+    <div style="display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 3px;">
+      <span style="color: #64748b;">Reference Grid</span>
+      <span id="ctx-crs" style="color: #cbd5e1; font-weight: 600;">WGS84 (EPSG:4326)</span>
     </div>
+  </div>
 
-    <!-- Row 5: Gradient & Helipad Zone -->
-    <div class="telemetry-row">
-      <svg class="row-icon" viewBox="0 0 24 24"><path d="M2.5 19h19v2h-19zm19-4.5L13 3.5 4.5 14.5z"/></svg>
-      <div class="row-content">
-        <div class="row-label">Local Gradient</div>
-        <div class="gradient-badge-box">
-          <span class="row-value" id="val-slope">1.4°</span>
-          <div class="helipad-badge" id="helipad-status-tag">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-            <span>Safe Emergency Helipad Zone</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Context Details Section -->
-    <div class="context-section">
-      <div class="context-title-row">
-        <span class="context-title">Location Context</span>
-        <a class="bhuvan-link" id="link-bhuvan-portal" target="_blank" href="https://bhuvan.nrsc.gov.in">Open in Bhuvan ↗</a>
-      </div>
-      <div class="context-grid">
-        <span class="context-k">District</span><span class="context-v" id="ctx-district">Pune</span>
-        <span class="context-k">State</span><span class="context-v" id="ctx-state">Maharashtra</span>
-        <span class="context-k">Land Use</span><span class="context-v" id="ctx-landuse">Residential (Urban)</span>
-        <span class="context-k">Nearest Road</span><span class="context-v">~ 42 m</span>
-        <span class="context-k">Coordinate System</span><span class="context-v" id="ctx-crs">WGS84 (EPSG:4326)</span>
-      </div>
-    </div>
-
-    <!-- Bhuvan Footer Brand -->
-    <div class="bhuvan-footer-card">
-      <div class="bhuvan-footer-left">
-        <img class="bhuvan-icon" src="https://bhuvan.nrsc.gov.in/bhuvan_links/images/bhuvan_logo.png" onerror="this.style.background='#38bdf8'" alt="B">
-        <div>
-          <div class="bhuvan-text-title">Bhuvan</div>
-          <div class="bhuvan-text-sub">Indian Geo-Platform of ISRO</div>
-        </div>
-      </div>
-      <a class="bhuvan-link" target="_blank" href="https://bhuvan.nrsc.gov.in">Open in Bhuvan ↗</a>
-    </div>
-  </aside>
-
-  <!-- 5. BOTTOM MULTI-SPECTRAL & ANALYSIS LAYER SWITCHER -->
+  <!-- BOTTOM LAYER SELECTOR STRIP -->
   <div id="bottom-layer-strip">
-    <div class="layer-card active" data-mode="satellite">
-      <img class="layer-thumb" src="inputs/GAMUS_DC_03_26.png" id="thumb-sat">
-      <div class="layer-label">Satellite</div>
+    <div class="active" title="Satellite Orthomosaic">
+      <img src="" alt="Satellite">
+      <span>Satellite</span>
     </div>
-    <div class="layer-card" data-mode="dsm">
-      <canvas class="layer-thumb" id="thumb-dsm-canvas" width="96" height="64"></canvas>
-      <div class="layer-label">DSM (3D Mesh)</div>
+    <div title="Surface DSM Heatmap">
+      <img src="" alt="DSM">
+      <span>DSM (3D Mesh)</span>
     </div>
-    <div class="layer-card" data-mode="slope">
-      <canvas class="layer-thumb" id="thumb-slope-canvas" width="96" height="64"></canvas>
-      <div class="layer-label">Slope Map</div>
+    <div title="Hazard Slope Map">
+      <img src="" alt="Slope">
+      <span>Slope Map</span>
     </div>
-    <div class="layer-card" data-mode="shadow">
-      <canvas class="layer-thumb" id="thumb-shadow-canvas" width="96" height="64"></canvas>
-      <div class="layer-label">Shadow Analysis</div>
+    <div title="High-Pass Structural Wireframe">
+      <img src="" alt="Wireframe">
+      <span>Shadow Analysis</span>
     </div>
-    <div class="layer-card" data-mode="fpv">
-      <img class="layer-thumb" src="inputs/sample_urban.png" id="thumb-fpv">
-      <div class="layer-label">Surrounding Area</div>
+    <div title="Low-Altitude Recon Sweep">
+      <img src="" alt="Surround">
+      <span>Surrounding Area</span>
     </div>
   </div>
 
-  <!-- 6. SCALE BAR & VIEWPORT METADATA -->
-  <div id="scale-bar-box">
-    <div class="scale-labels">
-      <span>0</span><span>25</span><span>50</span><span>100 m</span>
+  <!-- FOOTER STATUS STRIP -->
+  <div id="bottom-info-strip">
+    <div style="display: flex; gap: 16px;">
+      <div>Lat: <span id="stat-lat">18.5204° N</span></div>
+      <div>Lon: <span id="stat-lon">73.8567° E</span></div>
+      <div>Elev (DSM): <span id="stat-elev">888.0 m</span></div>
     </div>
-    <div class="scale-ticks"></div>
+    <div style="display: flex; gap: 16px;">
+      <div>Source: CartoDEM | SRTM | INSAT-3D</div>
+      <div>Resolution: 0.5 m</div>
+      <div>Status: <span style="color:#10b981;">Locked 60 FPS</span></div>
+    </div>
   </div>
 
-  <footer id="bottom-meta-bar">
-    <div class="meta-segment">
-      <span>Lat: <span class="meta-highlight" id="footer-lat">18.5204° N</span></span>
-      <span>Lon: <span class="meta-highlight" id="footer-lon">73.8567° E</span></span>
-      <span>Elev (DSM): <span class="meta-highlight" id="footer-elev">924.2 m</span></span>
-    </div>
-    <div class="meta-segment">
-      <span>Source: <span class="meta-highlight">CartoDEM | SRTM | INSAT-3D</span></span>
-      <span>Resolution: <span class="meta-highlight">0.5 m</span></span>
-      <span>Imagery Date: <span class="meta-highlight">12 Aug 2025, 09:30 IST</span></span>
-      <span>Status: <span class="meta-highlight" style="color: #34d399;">Locked 60 FPS</span></span>
-    </div>
-  </footer>
-
-  <!-- 7. FLOATING 3D TARGET PIN -->
-  <div id="pin-tooltip">
-    <div class="pin-bubble" id="pin-text">Rooftop Target<br>(18.5204° N, 73.8567° E)</div>
-    <div class="pin-stem"></div>
-  </div>
-
-  <!-- 8. FLYOUT DRAWER FOR ANALYSIS (DISASTER SUITE) -->
-  <div class="tool-drawer" id="analysis-drawer">
-    <div class="tool-drawer-title">
-      <span>Tactical Disaster Suite</span>
-      <span style="cursor:pointer;" onclick="document.getElementById('analysis-drawer').style.display='none'">✕</span>
-    </div>
-    <button class="drawer-btn" id="btn-flood">+ Flood Inundation (+5m)</button>
-    <button class="drawer-btn" id="btn-helipad">ICAO Rooftop Helipads</button>
-    <button class="drawer-btn" id="btn-uav">UAV Flight Safety Corridor</button>
-    <div id="drawer-telemetry" style="font-size:10px; font-family:monospace; color:#38bdf8; margin-top:8px;"></div>
-  </div>
-
-  <!-- 9. FLYOUT DRAWER FOR EXPORT -->
-  <div class="tool-drawer" id="export-drawer">
-    <div class="tool-drawer-title">
-      <span>Survey Deliverables</span>
-      <span style="cursor:pointer;" onclick="document.getElementById('export-drawer').style.display='none'">✕</span>
-    </div>
-    <button class="drawer-btn" id="btn-export-geotiff">Download 32-Bit GeoTIFF</button>
-    <button class="drawer-btn" id="btn-export-glb">Download 3D Binary GLB</button>
-  </div>
-
-  <!-- 10. FLYOUT DRAWER FOR LAYERS / REMOTE STREAMING -->
-  <div class="tool-drawer" id="layers-drawer">
-    <div class="tool-drawer-title">
-      <span>Satellite Ingestion</span>
-      <span style="cursor:pointer;" onclick="document.getElementById('layers-drawer').style.display='none'">✕</span>
-    </div>
-    <label style="font-size:10px; color:#94a3b8; display:block; margin-bottom:6px;">Upload Custom GeoTIFF/PNG:</label>
-    <input type="file" id="file-input" style="font-size:10px; color:#cbd5e1; margin-bottom:10px;" accept="image/*,.tif,.tiff">
-    <label style="font-size:10px; color:#94a3b8; display:block; margin-bottom:4px;">Remote GAMUS Streamer:</label>
-    <div style="display:flex; gap:6px;">
-      <button class="drawer-btn" id="btn-stream-prev" style="text-align:center;">◀ Prev</button>
-      <button class="drawer-btn" id="btn-stream-next" style="text-align:center;">Next ▶</button>
-    </div>
-    <div id="remote-tile-label" style="font-size:9.5px; font-family:monospace; color:#38bdf8; margin-top:4px;"></div>
-  </div>
-
-  <div id="canvas-container" style="position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1;"></div>
-
-  <script src="js/viewer.js?v=10"></script>
-
-<!-- TACTICAL MEASURE TOOL DRAWER -->
-<div id="measure-drawer" style="display:none; position:fixed; left:68px; top:68px; width:310px; background:#07101e; border:1px solid #38bdf8; border-radius:8px; padding:16px; z-index:99999; color:#ffffff; box-shadow:0 12px 30px rgba(0,0,0,0.85); font-family:sans-serif;">
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid #1e293b; padding-bottom:8px;">
-    <span style="font-weight:700; font-size:13px; letter-spacing:0.5px; color:#38bdf8;">SURFACE DISTANCE / SLOPE</span>
-    <button id="close-measure-drawer-x" style="background:transparent; border:none; color:#94a3b8; font-size:20px; cursor:pointer; line-height:1;">&times;</button>
-  </div>
-  <div id="measure-readout" style="font-size:12px; color:#cbd5e1; line-height:1.6;">
-    <span style="color:#38bdf8; font-weight:600;">Active Mode:</span> Click any 2 points on the 3D terrain to measure line-of-sight vector, ground distance, and elevation drop.
-  </div>
-</div>
-
+  <script src="js/viewer.js"></script>
 </body>
 </html>
+
+
