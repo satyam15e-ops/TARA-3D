@@ -1,4 +1,4 @@
-﻿# TARA-3D: Single-View Height Estimation & 3D Disaster GIS Cockpit
+﻿# TARA-3D: Single-View Height Estimation & 3D Flythrough GIS Cockpit
 **SIH 2026 Problem Statement ID**: 26175 (DepthWizard)  
 **Organization**: Indian Space Research Organisation (ISRO) / Space Applications Centre (SAC)  
 **Theme**: Disaster Management  
