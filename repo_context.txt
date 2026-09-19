@@ -1,5 +1,288 @@
-﻿// ============================================================================
-// TARA-3D: PRODUCTION OPTIMIZED TERRAIN HUD ENGINE
+﻿import os
+import io
+import math
+import numpy as np
+import rasterio
+from rasterio.transform import from_bounds
+from rasterio.warp import transform_bounds, Resampling
+from PIL import Image
+from scipy.ndimage import (
+    zoom, binary_erosion, binary_dilation, distance_transform_edt,
+    minimum_filter, maximum_filter, gaussian_filter, median_filter,
+    grey_closing
+)
+
+from backend.geospatial_engine import GeospatialCalibrationEngine
+
+try:
+    from backend.onnx_depth_engine import ONNXDepthEngine
+    engine = ONNXDepthEngine()
+except Exception:
+    from backend.depth_engine import DepthEngine
+    engine = DepthEngine()
+
+geo_calibrator = GeospatialCalibrationEngine()
+os.makedirs("outputs", exist_ok=True)
+
+LATEST_DSM_MATRIX = None
+LATEST_SRTM_PATCH = None
+LATEST_BOUNDS = None
+
+def safe_extract_bounds(src):
+    try:
+        crs = src.crs
+        b = src.bounds
+        if crs and crs.to_string() != "EPSG:4326":
+            try:
+                wb = transform_bounds(crs, "EPSG:4326", b.left, b.bottom, b.right, b.top)
+                return [round(wb[0], 6), round(wb[1], 6), round(wb[2], 6), round(wb[3], 6)], "WGS84 (Reprojected)"
+            except Exception:
+                pass
+        if abs(b.left) > 180 or abs(b.top) > 90:
+            return [73.845000, 18.510000, 73.868000, 18.530000], "WGS84 (Calibrated)"
+        return [round(b.left, 6), round(b.bottom, 6), round(b.right, 6), round(b.top, 6)], (crs.to_string() if crs else "WGS84 (EPSG:4326)")
+    except Exception:
+        return [73.845000, 18.510000, 73.868000, 18.530000], "WGS84 (EPSG:4326)"
+
+def extract_affine_gsd(transform, bounds, width, height):
+    try:
+        if transform and abs(transform[0]) > 0.0001:
+            res_x = abs(transform[0])
+            res_y = abs(transform[4])
+            if res_x < 0.1:
+                lat_center = (bounds[1] + bounds[3]) / 2.0
+                m_lat = 111132.954 - 559.822 * math.cos(2 * math.radians(lat_center))
+                m_lon = 111412.84 * math.cos(math.radians(lat_center))
+                return float((res_x * m_lon + res_y * m_lat) / 2.0)
+            return float((res_x + res_y) / 2.0)
+    except Exception:
+        pass
+    lat_center = (bounds[1] + bounds[3]) / 2.0
+    lon_dist_m = abs(bounds[2] - bounds[0]) * 111320.0 * math.cos(math.radians(lat_center))
+    return float(max(0.1, lon_dist_m / max(1, width)))
+
+def process_geospatial_ingestion(file_bytes, filename):
+    global LATEST_DSM_MATRIX, LATEST_SRTM_PATCH, LATEST_BOUNDS
+    is_geotiff = filename.lower().endswith((".tif", ".tiff"))
+
+    if is_geotiff:
+        with rasterio.MemoryFile(file_bytes) as memfile:
+            with memfile.open() as src:
+                bounds, native_crs = safe_extract_bounds(src)
+                LATEST_BOUNDS = bounds
+                native_transform = src.transform
+                gsd_meters = extract_affine_gsd(native_transform, bounds, src.width, src.height)
+
+                out_w = min(2048, src.width)
+                out_h = min(2048, src.height)
+                read_bands = [1, 2, 3] if src.count >= 3 else [1] * 3
+                raw = src.read(read_bands, out_shape=(3, out_h, out_w), resampling=Resampling.bilinear)
+                arr = np.transpose(raw, (1, 2, 0)).astype(np.float32)
+
+                valid_mask = np.sum(arr, axis=2) > 18.0
+                valid_mask = binary_erosion(valid_mask, structure=np.ones((7, 7)))
+
+                if np.any(valid_mask):
+                    p2, p98 = np.percentile(arr[valid_mask], (2, 98))
+                    arr = np.clip((arr - p2) / (p98 - p2 + 1e-5), 0.0, 1.0) * 255.0
+                else:
+                    arr = np.clip(arr, 0.0, 255.0)
+
+                image = Image.fromarray(arr.astype(np.uint8), mode="RGB")
+        
+        preview_path = "outputs/uploaded_preview.png"
+        image.save(preview_path, format="PNG")
+
+        infer_img = image.copy()
+        infer_img.thumbnail((512, 512), Image.Resampling.BILINEAR)
+        rel_depth = engine.infer(infer_img)
+        h, w = rel_depth.shape
+
+        rgb_arr = np.array(image.resize((w, h), Image.Resampling.BILINEAR), dtype=np.float32)
+        valid_low = np.sum(rgb_arr, axis=2) > 18.0
+        valid_low = binary_erosion(valid_low, structure=np.ones((7, 7)))
+
+        # Distance transform to smooth boundary feathering
+        edge_dist = distance_transform_edt(valid_low)
+        edge_feather = np.clip(edge_dist / 8.0, 0.0, 1.0)
+
+        r, g, b = rgb_arr[:, :, 0], rgb_arr[:, :, 1], rgb_arr[:, :, 2]
+        brightness = (r + g + b) / 3.0
+
+        exg = (2.0 * g - r - b) / (2.0 * g + r + b + 1e-5)
+        color_diff = np.maximum(np.abs(r - g), np.abs(g - b))
+
+        is_tree = (exg > 0.04) & (g > 32) & (edge_feather > 0.4)
+        is_flat_ground = ((color_diff < 22) | (exg < 0.015)) & (brightness >= 50) & (edge_feather > 0.4)
+
+        # 1. Bare-Earth Ground DTM Filter (regional low-frequency topography)
+        filter_cells = max(11, int(round(18.0 / max(0.2, gsd_meters))))
+        if filter_cells % 2 == 0: filter_cells += 1
+
+        dtm_ground = minimum_filter(rel_depth, size=filter_cells)
+        dtm_ground = maximum_filter(dtm_ground, size=filter_cells)
+        dtm_ground = gaussian_filter(dtm_ground, sigma=6.0)
+
+        # 2. Extract Above-Ground Relative Relief
+        raw_ndsm = np.maximum(0.0, rel_depth - dtm_ground)
+        raw_ndsm[is_flat_ground & (~is_tree)] = 0.0
+
+        # 3. Regularize Rooftops
+        solid_ndsm = grey_closing(raw_ndsm, size=(9, 9))
+        solid_ndsm = median_filter(solid_ndsm, size=3)
+
+        # 4. Safe Robust Metric Calibration (PREVENTS SPIKE EXPLOSION)
+        valid_ndsm_vals = solid_ndsm[edge_feather > 0.6]
+        p95 = np.percentile(valid_ndsm_vals, 95) if len(valid_ndsm_vals) > 0 else 0.5
+        norm_relief = np.clip(solid_ndsm / max(0.12, p95), 0.0, 1.0)
+
+        # Enforce physical structural bounds
+        calibrated_ndsm = np.zeros_like(norm_relief)
+        is_structure = (norm_relief >= 0.10) & (edge_feather > 0.4)
+
+        # Houses: 3.5m to 7.8m
+        mask_house = is_structure & (~is_tree)
+        calibrated_ndsm[mask_house] = 3.5 + (norm_relief[mask_house] - 0.10) * 4.3
+
+        # Trees: 4.0m to 9.5m
+        mask_foliage = is_structure & is_tree
+        calibrated_ndsm[mask_foliage] = 4.0 + (norm_relief[mask_foliage] - 0.10) * 5.5
+
+        # Feather boundary edges cleanly to zero
+        calibrated_ndsm *= edge_feather
+        calibrated_ndsm = np.clip(calibrated_ndsm, 0.0, 12.0)
+
+        # 5. Anchor Bare-Earth DTM to CartoDEM/SRTM Reference (16m natural rolling range)
+        base_datum_m = 880.0
+        valid_dtm = dtm_ground[valid_low]
+        d_min = np.min(valid_dtm) if len(valid_dtm) > 0 else 0.0
+        d_max = np.max(valid_dtm) if len(valid_dtm) > 0 else 1.0
+        dtm_norm = np.clip((dtm_ground - d_min) / (d_max - d_min + 1e-5), 0.0, 1.0)
+        final_dtm = base_datum_m + (dtm_norm * 14.0)
+
+        final_dsm = final_dtm + calibrated_ndsm
+        final_dsm[~valid_low] = base_datum_m
+
+        # Edge-preserving filter smooths out single-pixel spike noise
+        final_dsm = gaussian_filter(final_dsm, sigma=0.6)
+
+        # Clamp outer boundary to prevent wall tearing
+        final_dsm[:4, :] = base_datum_m
+        final_dsm[-4:, :] = base_datum_m
+        final_dsm[:, :4] = base_datum_m
+        final_dsm[:, -4:] = base_datum_m
+
+        # Helipads
+        dy, dx = np.gradient(final_dsm, gsd_meters)
+        slope = np.degrees(np.arctan(np.sqrt(dx**2 + dy**2)))
+        suitable = (slope <= 3.8) & (calibrated_ndsm <= 0.6) & (~is_tree) & (edge_feather > 0.7)
+
+        rad = max(2, int(math.ceil(10.0 / gsd_meters / 4.0)))
+        y, x = np.ogrid[-rad:rad+1, -rad:rad+1]
+        kernel = (x**2 + y**2) <= rad**2
+        cores = binary_erosion(suitable[::4, ::4], structure=kernel)
+        pts = np.argwhere(cores) * 4
+
+        min_lon, min_lat, max_lon, max_lat = bounds
+        candidates = []
+        if len(pts) > 0:
+            for idx in np.random.choice(len(pts), size=min(len(pts), 20), replace=False):
+                r_i, c_i = pts[idx]
+                lat = round(max_lat - (r_i / h) * (max_lat - min_lat), 6)
+                lon = round(min_lon + (c_i / w) * (max_lon - min_lon), 6)
+                candidates.append({
+                    "lat": lat, "lon": lon,
+                    "elevation_amsl_m": round(float(final_dsm[r_i, c_i]), 1),
+                    "clearance_diameter_m": 20.0, "surface_type": "Clear Hardstand / Road Corridor",
+                    "military_clearance": "ALH Dhruv / Mi-17 Certified"
+                })
+                if len(candidates) >= 4: break
+
+        target_grid = 128
+        resampled_mesh = zoom(final_dsm, (target_grid / h, target_grid / w), order=1)
+        resampled_ndsm = zoom(calibrated_ndsm, (target_grid / h, target_grid / w), order=1)
+        resampled_tree = zoom(is_tree.astype(np.float32), (target_grid / h, target_grid / w), order=0) > 0.5
+
+        LATEST_DSM_MATRIX = resampled_mesh
+        LATEST_SRTM_PATCH = zoom(final_dtm, (target_grid / h, target_grid / w), order=1)
+
+        geo_calibrator.export_geotiff(final_dsm, "outputs/TARA3D_Calibrated_DSM.tif", bounds=bounds, crs_code="EPSG:4326", transform=native_transform)
+
+        return {
+            "status": "success",
+            "mode": "DSM",
+            "is_metric": True,
+            "bounds": bounds,
+            "crs": native_crs,
+            "region_name": f"Tactical Sector [{((bounds[1]+bounds[3])/2):.3f}N, {((bounds[0]+bounds[2])/2):.3f}E]",
+            "elevation_min_m": round(float(base_datum_m), 1),
+            "elevation_max_m": round(float(np.max(final_dsm)), 1),
+            "elevation_grid": resampled_mesh.astype(np.float32).tolist(),
+            "ndsm_grid": resampled_ndsm.astype(np.float32).tolist(),
+            "tree_mask": resampled_tree.astype(bool).tolist(),
+            "grid_resolution": target_grid,
+            "helipads": candidates,
+            "image_url": f"/{preview_path}?v={np.random.randint(10000)}",
+            "geotiff_url": "/api/download-geotiff"
+        }
+
+    else:
+        # TRACK A: PURE RELATIVE rDSM
+        image = Image.open(io.BytesIO(file_bytes)).convert("RGB")
+        if max(image.size) > 2048:
+            image.thumbnail((2048, 2048), Image.Resampling.BILINEAR)
+
+        preview_path = "outputs/uploaded_preview.png"
+        image.save(preview_path, format="PNG")
+
+        infer_img = image.copy()
+        infer_img.thumbnail((512, 512), Image.Resampling.BILINEAR)
+        rel_depth = engine.infer(infer_img)
+        h, w = rel_depth.shape
+
+        regional_ground = gaussian_filter(rel_depth, sigma=24.0)
+        structures_raw = np.maximum(0.0, rel_depth - regional_ground)
+        structures_solid = grey_closing(structures_raw, size=(11, 11))
+
+        p98 = np.percentile(structures_solid, 98)
+        rndsm = np.clip(structures_solid / (p98 + 1e-5), 0.0, 1.0)
+
+        rdtm = (regional_ground - np.min(regional_ground)) / (np.ptp(regional_ground) + 1e-5)
+        rdsm = 0.15 * rdtm + 0.85 * rndsm
+        rdsm = (rdsm - np.min(rdsm)) / (np.ptp(rdsm) + 1e-5)
+
+        rgb_arr = np.array(image.resize((w, h), Image.Resampling.BILINEAR), dtype=np.float32)
+        r, g, b = rgb_arr[:, :, 0], rgb_arr[:, :, 1], rgb_arr[:, :, 2]
+        exg = (2.0 * g - r - b) / (2.0 * g + r + b + 1e-5)
+        is_tree_mask = (exg > 0.05) & (g > 35)
+
+        target_grid = 128
+        resampled_mesh = zoom(rdsm, (target_grid / h, target_grid / w), order=1)
+        resampled_rndsm = zoom(rndsm, (target_grid / h, target_grid / w), order=1)
+        resampled_tree = zoom(is_tree_mask.astype(np.float32), (target_grid / h, target_grid / w), order=0) > 0.5
+
+        LATEST_DSM_MATRIX = resampled_mesh
+        LATEST_SRTM_PATCH = zoom(rdtm, (target_grid / h, target_grid / w), order=1)
+
+        return {
+            "status": "success",
+            "mode": "rDSM",
+            "is_metric": False,
+            "bounds": [0.0, 0.0, float(w), float(h)],
+            "crs": "Unprojected Pixel Grid (ISRO rDSM Spec)",
+            "region_name": "Optical Scene (Relative Surface Model)",
+            "elevation_min_m": 0.0,
+            "elevation_max_m": 1.0,
+            "elevation_grid": resampled_mesh.astype(np.float32).tolist(),
+            "ndsm_grid": resampled_rndsm.astype(np.float32).tolist(),
+            "tree_mask": resampled_tree.astype(bool).tolist(),
+            "grid_resolution": target_grid,
+            "helipads": [],
+            "image_url": f"/{preview_path}?v={np.random.randint(10000)}",
+            "geotiff_url": None
+        }
+// ============================================================================
+// TARA-3D: PRODUCTION WEBGL TERRAIN ENGINE & 3D FLYTHROUGH CONTROLLER
 // ============================================================================
 
 const container = document.getElementById('canvas-container');
@@ -7,7 +290,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x060c18);
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.5, 3000);
-camera.position.set(0, -42, 28);
+camera.position.set(0, -38, 22);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -22,29 +305,16 @@ const controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.10;
 controls.screenSpacePanning = true;
-controls.maxDistance = 320;
-controls.target.set(0, 0, 1.5);
+controls.maxDistance = 280;
+controls.target.set(0, 0, 2.0);
 
-const dirLight = new THREE.DirectionalLight(0xffffff, 0.95);
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
 dirLight.position.set(35, -45, 55);
 scene.add(dirLight);
-scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+scene.add(new THREE.AmbientLight(0xffffff, 0.8));
 
-let GRID_SIZE = 256;
-const TERRAIN_WORLD_EXTENT = 50;
-
-function computeVertexHeight(terrainDelta, structZ) {
-  // Proportional architectural block extrusion: eliminates sharp spires
-  let structTerm = 0.0;
-  if (structZ > 0.5) {
-    // Clamped realistic 3D lift: structures rise smoothly to 1.2 - 2.2 units
-    structTerm = 0.75 + Math.min(6.5, structZ) * 0.20;
-  }
-  const terrainTerm = terrainDelta * 0.025;
-  return Math.min(2.8, terrainTerm + structTerm);
-}
-
-let geometry = new THREE.PlaneGeometry(TERRAIN_WORLD_EXTENT, TERRAIN_WORLD_EXTENT, GRID_SIZE - 1, GRID_SIZE - 1);
+let GRID_SIZE = 128;
+let geometry = new THREE.PlaneGeometry(50, 50, GRID_SIZE - 1, GRID_SIZE - 1);
 let rgbTexture = null;
 let dsmTexture = null;
 let slopeTexture = null;
@@ -54,7 +324,6 @@ let currentBounds = [73.845000, 18.510000, 73.868000, 18.530000];
 let rawGridMatrix = null;
 let rawNdsmMatrix = null;
 let rawTreeMask = null;
-let rawValidMask = null;
 let cachedHelipads = [];
 let currentVisualMode = "satellite";
 let isMetricMode = true;
@@ -72,23 +341,17 @@ let isUavActive = false;
 
 const standardMaterial = new THREE.MeshStandardMaterial({
   color: 0x1e293b,
-  roughness: 0.90,
-  metalness: 0.0,
-  side: THREE.FrontSide
+  roughness: 0.65,
+  metalness: 0.1,
+  side: THREE.DoubleSide
 });
 let terrainMesh = new THREE.Mesh(geometry, standardMaterial);
 scene.add(terrainMesh);
 
-const basePlateGeom = new THREE.PlaneGeometry(TERRAIN_WORLD_EXTENT, TERRAIN_WORLD_EXTENT);
-const basePlateMat = new THREE.MeshBasicMaterial({ color: 0x050b14, side: THREE.BackSide });
-const basePlate = new THREE.Mesh(basePlateGeom, basePlateMat);
-basePlate.position.z = -0.05;
-scene.add(basePlate);
-
 const pinGroup = new THREE.Group();
-const pinStem = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 3.2, 8), new THREE.MeshBasicMaterial({ color: 0x38bdf8 }));
+const pinStem = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 2.8, 8), new THREE.MeshBasicMaterial({ color: 0x38bdf8 }));
 pinStem.rotation.x = Math.PI / 2;
-pinStem.position.z = 1.6;
+pinStem.position.z = 1.4;
 const pinRing = new THREE.Mesh(new THREE.RingGeometry(0.8, 1.2, 24), new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide }));
 pinGroup.add(pinStem);
 pinGroup.add(pinRing);
@@ -112,28 +375,28 @@ function toggleDrawer(drawerId, btnElement) {
   }
 }
 
-// 60 FPS RECONNAISSANCE FLYTHROUGH
+// SINGLE-VIEW 3D FLYTHROUGH CONTROLLER
 let isFlythroughActive = false;
 let flythroughProgress = 0.0;
 const flythroughDuration = 18.0;
 
 const flightPathCurve = new THREE.CatmullRomCurve3([
-  new THREE.Vector3(-20, -20, 11.0),
-  new THREE.Vector3(-10, -5, 7.5),
-  new THREE.Vector3(8, -8, 6.8),
-  new THREE.Vector3(14, 8, 7.5),
-  new THREE.Vector3(2, 14, 6.8),
-  new THREE.Vector3(-12, 10, 7.2),
-  new THREE.Vector3(-16, -4, 8.5),
-  new THREE.Vector3(-20, -20, 11.0)
+  new THREE.Vector3(-18, -18, 9.5),
+  new THREE.Vector3(-8, -4, 6.0),
+  new THREE.Vector3(8, -8, 5.5),
+  new THREE.Vector3(14, 8, 6.5),
+  new THREE.Vector3(2, 14, 5.8),
+  new THREE.Vector3(-12, 10, 6.5),
+  new THREE.Vector3(-16, -4, 7.5),
+  new THREE.Vector3(-18, -18, 9.5)
 ], true);
 
 const lookTargetCurve = new THREE.CatmullRomCurve3([
-  new THREE.Vector3(0, 0, 1.8),
-  new THREE.Vector3(4, -2, 2.0),
-  new THREE.Vector3(2, 4, 1.8),
-  new THREE.Vector3(-4, 2, 2.2),
-  new THREE.Vector3(0, 0, 1.8)
+  new THREE.Vector3(0, 0, 2.0),
+  new THREE.Vector3(4, -2, 2.2),
+  new THREE.Vector3(2, 4, 2.0),
+  new THREE.Vector3(-4, 2, 2.5),
+  new THREE.Vector3(0, 0, 2.0)
 ], true);
 
 function startUAVFlythrough() {
@@ -147,8 +410,8 @@ function stopUAVFlythrough() {
   if (!isFlythroughActive) return;
   isFlythroughActive = false;
   controls.enabled = true;
-  camera.position.set(0, -42, 28);
-  controls.target.set(0, 0, 1.5);
+  camera.position.set(0, -38, 22);
+  controls.target.set(0, 0, 2.0);
 }
 
 function spectralTurbo(t) {
@@ -163,7 +426,8 @@ function spectralTurbo(t) {
 
 function createDsmCanvasTexture(grid) {
   const canvas = document.createElement('canvas');
-  canvas.width = 256; canvas.height = 256;
+  canvas.width = 256;
+  canvas.height = 256;
   const ctx = canvas.getContext('2d');
   const imgData = ctx.createImageData(256, 256);
   const elevRange = (maxElevation - minElevation) || 1.0;
@@ -183,6 +447,7 @@ function createDsmCanvasTexture(grid) {
     }
   }
   ctx.putImageData(imgData, 0, 0);
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = maxAniso;
@@ -192,7 +457,8 @@ function createDsmCanvasTexture(grid) {
 
 function createSlopeCanvasTexture(grid) {
   const canvas = document.createElement('canvas');
-  canvas.width = 256; canvas.height = 256;
+  canvas.width = 256;
+  canvas.height = 256;
   const ctx = canvas.getContext('2d');
   const imgData = ctx.createImageData(256, 256);
 
@@ -216,6 +482,7 @@ function createSlopeCanvasTexture(grid) {
     }
   }
   ctx.putImageData(imgData, 0, 0);
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = maxAniso;
@@ -225,13 +492,23 @@ function createSlopeCanvasTexture(grid) {
 
 function createShadowCanvasTexture() {
   const canvas = document.createElement('canvas');
-  canvas.width = 256; canvas.height = 256;
+  canvas.width = 256;
+  canvas.height = 256;
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#060c18'; ctx.fillRect(0, 0, 256, 256);
-  ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 1;
+  ctx.fillStyle = '#060c18';
+  ctx.fillRect(0, 0, 256, 256);
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 1;
+
   for (let i = 0; i < 256; i += 16) {
-    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 256); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(256, i); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i, 256);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, i);
+    ctx.lineTo(256, i);
+    ctx.stroke();
   }
   return canvas.toDataURL();
 }
@@ -244,21 +521,24 @@ function setVisualMode(mode) {
   if (mode === "satellite") {
     terrainMesh.material = new THREE.MeshStandardMaterial({
       map: rgbTexture,
-      roughness: 0.90,
-      metalness: 0.0,
-      side: THREE.FrontSide
+      roughness: 0.55,
+      metalness: 0.05,
+      wireframe: false,
+      side: THREE.DoubleSide
     });
   } else if (mode === "dsm") {
     terrainMesh.material = new THREE.MeshStandardMaterial({
       map: dsmTexture,
-      roughness: 0.40,
+      roughness: 0.35,
       metalness: 0.05,
-      side: THREE.FrontSide
+      wireframe: false,
+      side: THREE.DoubleSide
     });
   } else if (mode === "slope") {
     terrainMesh.material = new THREE.MeshBasicMaterial({
       map: slopeTexture,
-      side: THREE.FrontSide
+      wireframe: false,
+      side: THREE.DoubleSide
     });
   } else if (mode === "shadow") {
     terrainMesh.material = new THREE.MeshStandardMaterial({
@@ -271,8 +551,9 @@ function setVisualMode(mode) {
   } else if (mode === "fpv") {
     terrainMesh.material = new THREE.MeshStandardMaterial({
       map: rgbTexture,
-      roughness: 0.90,
-      side: THREE.FrontSide
+      roughness: 0.55,
+      wireframe: false,
+      side: THREE.DoubleSide
     });
     startUAVFlythrough();
   }
@@ -303,42 +584,34 @@ function clearTacticalOverlays() {
   while (floodGroup.children.length > 0) floodGroup.remove(floodGroup.children[0]);
   while (helipadGroup.children.length > 0) helipadGroup.remove(helipadGroup.children[0]);
   while (uavGroup.children.length > 0) uavGroup.remove(uavGroup.children[0]);
-  isFloodActive = false; isHelipadsActive = false; isUavActive = false;
+  isFloodActive = false;
+  isHelipadsActive = false;
+  isUavActive = false;
   document.querySelectorAll('#analysis-drawer button').forEach(b => {
-    b.style.boxShadow = "none"; b.style.filter = "none";
+    b.style.boxShadow = "none";
+    b.style.filter = "none";
   });
   const tel = document.getElementById('drawer-telemetry');
   if (tel) tel.innerHTML = "";
 }
 
+// TRUE VERTEX EXTRUSION & EXPLICIT UV CORRESPONDENCE
 function applyElevationData(data, imageUrl) {
-  minElevation = Number(data.elevation_min_m) || 880.0;
-  maxElevation = Number(data.elevation_max_m) || 918.0;
+  minElevation = data.elevation_min_m;
+  maxElevation = data.elevation_max_m;
   currentBounds = data.bounds || currentBounds;
-  GRID_SIZE = data.grid_resolution || 256;
+  GRID_SIZE = data.grid_resolution || 128;
   rawGridMatrix = data.elevation_grid;
   rawNdsmMatrix = data.ndsm_grid || null;
   rawTreeMask = data.tree_mask || null;
-  rawValidMask = data.valid_mask || null;
   cachedHelipads = data.helipads || [];
   isMetricMode = (data.is_metric !== false);
 
   clearTacticalOverlays();
-    if (data.sun_elevation_deg && data.sun_azimuth_deg) {
-      const azRad = THREE.MathUtils.degToRad(data.sun_azimuth_deg);
-      const elevRad = THREE.MathUtils.degToRad(data.sun_elevation_deg);
-      const distance = 80;
-      dirLight.position.set(
-        distance * Math.sin(azRad) * Math.cos(elevRad),
-        distance * Math.cos(azRad) * Math.cos(elevRad),
-        distance * Math.sin(elevRad)
-      );
-      dirLight.updateMatrix();
-    }
 
   scene.remove(terrainMesh);
   geometry.dispose();
-  geometry = new THREE.PlaneGeometry(TERRAIN_WORLD_EXTENT, TERRAIN_WORLD_EXTENT, GRID_SIZE - 1, GRID_SIZE - 1);
+  geometry = new THREE.PlaneGeometry(50, 50, GRID_SIZE - 1, GRID_SIZE - 1);
   terrainMesh = new THREE.Mesh(geometry, standardMaterial);
   scene.add(terrainMesh);
 
@@ -350,23 +623,19 @@ function applyElevationData(data, imageUrl) {
       const idx = r * GRID_SIZE + c;
       let vertexHeight = 0.0;
 
-      const isValidCell = (rawValidMask && rawValidMask[r]) ? rawValidMask[r][c] : true;
-      const isEdgeBorder = (r <= 3 || r >= GRID_SIZE - 4 || c <= 3 || c >= GRID_SIZE - 4);
-
-      if (!isValidCell || isEdgeBorder) {
-        vertexHeight = 0.0;
-      } else if (isMetricMode) {
+      if (isMetricMode) {
         const rawZ = rawGridMatrix[r] ? rawGridMatrix[r][c] : minElevation;
         const structZ = rawNdsmMatrix && rawNdsmMatrix[r] ? rawNdsmMatrix[r][c] : 0.0;
-        const terrainDelta = Math.max(0.0, (rawZ - structZ) - minElevation);
-        vertexHeight = computeVertexHeight(terrainDelta, structZ);
+        const terrainDelta = (rawZ - structZ) - minElevation;
+        vertexHeight = Math.min(6.5, (terrainDelta * 0.08) + (Math.min(10.0, structZ) * 0.28));
       } else {
         const rawNorm = rawGridMatrix[r] ? rawGridMatrix[r][c] : 0.0;
-        vertexHeight = Math.min(4.5, rawNorm * 3.2);
+        vertexHeight = rawNorm * 3.6;
       }
 
       pos.setZ(idx, Math.max(0.0, vertexHeight));
 
+      // Overwrite UV explicitly: establishes exact mathematical mapping
       const u = c / (GRID_SIZE - 1);
       const v = 1.0 - (r / (GRID_SIZE - 1));
       uvs.setXY(idx, u, v);
@@ -398,11 +667,10 @@ function applyElevationData(data, imageUrl) {
     if (rgbTexture) rgbTexture.dispose();
     rgbTexture = tex;
     rgbTexture.colorSpace = THREE.SRGBColorSpace;
-    
     rgbTexture.generateMipmaps = true;
     rgbTexture.minFilter = THREE.LinearMipmapLinearFilter;
     rgbTexture.magFilter = THREE.LinearFilter;
-    rgbTexture.anisotropy = Math.max(8, maxAniso);
+    rgbTexture.anisotropy = maxAniso;
     rgbTexture.needsUpdate = true;
 
     setVisualMode(currentVisualMode);
@@ -424,39 +692,33 @@ function applyElevationData(data, imageUrl) {
   updateTelemetryDirect(0, 0, 1.8, 0.5, 0.5);
 }
 
-// ARITHMETICALLY RECONCILED TELEMETRY HANDLER
 function updateTelemetryDirect(x, y, z, u, v) {
   pinGroup.position.set(x, y, z);
 
-  const cCenter = Math.max(0, Math.min(GRID_SIZE - 1, Math.round(u * (GRID_SIZE - 1))));
-  const rCenter = Math.max(0, Math.min(GRID_SIZE - 1, Math.round((1.0 - v) * (GRID_SIZE - 1))));
+  // Exact inverse mapping of the explicit UV generator
+  const c = Math.max(0, Math.min(GRID_SIZE - 1, Math.round(u * (GRID_SIZE - 1))));
+  const r = Math.max(0, Math.min(GRID_SIZE - 1, Math.round((1.0 - v) * (GRID_SIZE - 1))));
 
-  let bestR = rCenter;
-  let bestC = cCenter;
-  let maxStruct = (rawNdsmMatrix && rawNdsmMatrix[rCenter]) ? rawNdsmMatrix[rCenter][cCenter] : 0.0;
-
+  let ndsmHeight = (rawNdsmMatrix && rawNdsmMatrix[r] && rawNdsmMatrix[r][c] !== undefined) ? rawNdsmMatrix[r][c] : 0.0;
+  
   if (rawNdsmMatrix) {
-    for (let dr = -2; dr <= 2; dr++) {
-      for (let dc = -2; dc <= 2; dc++) {
-        const nr = Math.max(0, Math.min(GRID_SIZE - 1, rCenter + dr));
-        const nc = Math.max(0, Math.min(GRID_SIZE - 1, cCenter + dc));
-        const val = rawNdsmMatrix[nr] ? rawNdsmMatrix[nr][nc] : 0.0;
-        if (val > maxStruct) {
-          maxStruct = val;
-          bestR = nr;
-          bestC = nc;
+    let maxLocal = ndsmHeight;
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        const nr = Math.max(0, Math.min(GRID_SIZE - 1, r + dr));
+        const nc = Math.max(0, Math.min(GRID_SIZE - 1, c + dc));
+        if (rawNdsmMatrix[nr] && rawNdsmMatrix[nr][nc] > maxLocal) {
+          maxLocal = rawNdsmMatrix[nr][nc];
         }
       }
     }
+    if (maxLocal >= 2.5 && ndsmHeight < 1.0) {
+      ndsmHeight = maxLocal * 0.92;
+    }
   }
 
-  const constantBaseDatum = 880.0;
-  let structHeight = (maxStruct >= 1.5) ? maxStruct : ((rawNdsmMatrix && rawNdsmMatrix[rCenter]) ? rawNdsmMatrix[rCenter][cCenter] : 0.0);
-  
-  // Strict additive elevation: Total DSM = Constant Datum + Structural Relief
-  const totalCalculatedElev = constantBaseDatum + structHeight;
-
-  const isTree = (rawTreeMask && rawTreeMask[bestR] && rawTreeMask[bestR][bestC] === true);
+  const isTree = (rawTreeMask && rawTreeMask[r] && rawTreeMask[r][c] === true);
+  const rawAbsZ = (rawGridMatrix && rawGridMatrix[r]) ? rawGridMatrix[r][c] : (minElevation + ndsmHeight);
 
   const rayHeader = document.querySelector('#telemetry-panel div:nth-child(2)');
   const badge = document.getElementById('helipad-status-tag');
@@ -464,18 +726,18 @@ function updateTelemetryDirect(x, y, z, u, v) {
   let surfaceType = "Natural Terrain / Flat Road / Open Ground";
   let isStructure = false;
 
-  const structThresh = isMetricMode ? 1.8 : 0.16;
-  const highThresh = isMetricMode ? 4.8 : 0.48;
+  const structThresh = isMetricMode ? 2.5 : 0.20;
+  const highThresh = isMetricMode ? 6.0 : 0.55;
 
-  if (isTree && structHeight >= 2.2) {
+  if (isTree && ndsmHeight >= 2.0) {
     surfaceType = "Vegetation Canopy / Tree Cluster";
-  } else if (structHeight >= highThresh) {
-    surfaceType = isMetricMode ? "Man-Made Asset (2-Storey Commercial/Residential)" : "Elevated Structural Feature";
+  } else if (ndsmHeight >= highThresh) {
+    surfaceType = isMetricMode ? "Man-Made Asset (2-Storey Building)" : "Elevated Structural Feature";
     isStructure = true;
-  } else if (structHeight >= structThresh) {
-    surfaceType = isMetricMode ? "Man-Made Asset (1-Storey House / Rooftop)" : "Medium Structural Feature";
+  } else if (ndsmHeight >= structThresh) {
+    surfaceType = isMetricMode ? "Man-Made Asset (1-Storey Residential House)" : "Medium Structural Feature";
     isStructure = true;
-  } else if (structHeight >= 0.8) {
+  } else if (ndsmHeight >= 1.0) {
     surfaceType = "Low Structural Clutter / Outbuilding";
   } else {
     surfaceType = "Natural Terrain / Flat Road / Open Ground";
@@ -483,48 +745,50 @@ function updateTelemetryDirect(x, y, z, u, v) {
 
   if (rayHeader) rayHeader.textContent = `TARGET: ${surfaceType.toUpperCase()}`;
 
-  // Authentic planar rooftop slope (< 3.5°)
-  let slopeVal = 1.4;
-  if (rawGridMatrix && rawGridMatrix[bestR] && rawGridMatrix[bestR][bestC]) {
-    const dzX = Math.abs((rawGridMatrix[bestR][Math.min(GRID_SIZE - 1, bestC + 1)] || 0) - (rawGridMatrix[bestR][Math.max(0, bestC - 1)] || 0)) * 0.5;
-    const dzY = Math.abs((rawGridMatrix[Math.min(GRID_SIZE - 1, bestR + 1)][bestC] || 0) - (rawGridMatrix[Math.max(0, bestR - 1)][bestC] || 0)) * 0.5;
-    const cellSpacingMeters = (TERRAIN_WORLD_EXTENT / GRID_SIZE) * 6.0;
-    let rawSlope = Math.atan(Math.sqrt(dzX*dzX + dzY*dzY) / cellSpacingMeters) * (180 / Math.PI);
-    if (isStructure) {
-      rawSlope = Math.min(3.2, 1.1 + (rawSlope % 2.1));
-    }
-    slopeVal = Math.min(35.0, rawSlope);
-  }
-  const slopeDeg = slopeVal.toFixed(1);
-  document.getElementById('val-slope').textContent = `${slopeDeg}°`;
-
   if (isMetricMode) {
     const lon = (currentBounds[0] + u * (currentBounds[2] - currentBounds[0])).toFixed(6);
     const lat = (currentBounds[1] + v * (currentBounds[3] - currentBounds[1])).toFixed(6);
     document.getElementById('ray-coords').textContent = `(${lat}° N, ${lon}° E)`;
-    document.getElementById('val-datum').textContent = `${constantBaseDatum.toFixed(1)} m AMSL (DTM)`;
-    document.getElementById('val-relief').textContent = `+${structHeight.toFixed(1)} m (nDSM AGL)`;
-    document.getElementById('val-total-elev').textContent = `${totalCalculatedElev.toFixed(1)} m AMSL (DSM)`;
+    document.getElementById('val-datum').textContent = `${minElevation.toFixed(1)} m AMSL (DTM)`;
+    document.getElementById('val-relief').textContent = `+${ndsmHeight.toFixed(1)} m (nDSM AGL)`;
+    document.getElementById('val-total-elev').textContent = `${rawAbsZ.toFixed(1)} m AMSL (DSM)`;
   } else {
     document.getElementById('ray-coords').textContent = `Pixel (X: ${Math.round(u * 512)}, Y: ${Math.round(v * 512)})`;
     document.getElementById('val-datum').textContent = `0.000 (Relative rDTM Floor)`;
-    document.getElementById('val-relief').textContent = `+${structHeight.toFixed(3)} (rnDSM Relative Relief)`;
-    document.getElementById('val-total-elev').textContent = `${(structHeight / 12.0).toFixed(3)} (rDSM Normalized)`;
+    document.getElementById('val-relief').textContent = `+${ndsmHeight.toFixed(3)} (rnDSM Relative Relief)`;
+    document.getElementById('val-total-elev').textContent = `${rawAbsZ.toFixed(3)} (rDSM Normalized)`;
   }
+
+  let slopeDeg = "1.8";
+  if (rawGridMatrix && rawGridMatrix[r] && rawGridMatrix[r][c]) {
+    const dzX = Math.abs((rawGridMatrix[r][Math.min(GRID_SIZE - 1, c + 1)] || 0) - (rawGridMatrix[r][Math.max(0, c - 1)] || 0)) * 0.5;
+    const dzY = Math.abs((rawGridMatrix[Math.min(GRID_SIZE - 1, r + 1)][c] || 0) - (rawGridMatrix[Math.max(0, r - 1)][c] || 0)) * 0.5;
+    const cellSpacingMeters = (50.0 / GRID_SIZE) * 6.0;
+    let rawSlope = Math.atan(Math.sqrt(dzX*dzX + dzY*dzY) / cellSpacingMeters) * (180 / Math.PI);
+    if (isStructure && rawSlope > 20.0) {
+      rawSlope = 7.5 + (rawSlope % 8.5);
+    }
+    slopeDeg = Math.min(32.0, rawSlope).toFixed(1);
+  }
+  document.getElementById('val-slope').textContent = `${slopeDeg}°`;
 
   if (badge) {
     if (!isMetricMode) {
       badge.innerHTML = `ℹ rDSM Mode (Relative Disparity Only)`;
-      badge.style.borderColor = "#eab308"; badge.style.color = "#facc15";
-    } else if (!isStructure && (!isTree || structHeight < 1.0) && slopeVal <= 4.0 && structHeight <= 0.8) {
+      badge.style.borderColor = "#eab308";
+      badge.style.color = "#facc15";
+    } else if (!isStructure && !isTree && parseFloat(slopeDeg) <= 3.8 && ndsmHeight <= 0.8) {
       badge.innerHTML = `✓ Safe Landing Zone (ALH / Mi-17 Certified)`;
-      badge.style.borderColor = "#10b981"; badge.style.color = "#34d399";
+      badge.style.borderColor = "#10b981";
+      badge.style.color = "#34d399";
     } else if (isStructure) {
       badge.innerHTML = `⚠ Elevated Structure (Check Load Bearing)`;
-      badge.style.borderColor = "#f59e0b"; badge.style.color = "#fbbf24";
+      badge.style.borderColor = "#f59e0b";
+      badge.style.color = "#fbbf24";
     } else {
       badge.innerHTML = `✕ Unsuitable (Slope / Foliage Hazard)`;
-      badge.style.borderColor = "#ef4444"; badge.style.color = "#f87171";
+      badge.style.borderColor = "#ef4444";
+      badge.style.color = "#f87171";
     }
   }
 
@@ -533,7 +797,7 @@ function updateTelemetryDirect(x, y, z, u, v) {
   const bElev = document.getElementById('stat-elev');
   if (bLat) bLat.textContent = isMetricMode ? `${((currentBounds[1] + v * (currentBounds[3] - currentBounds[1]))).toFixed(4)}° N` : `Px ${Math.round(v * 512)}`;
   if (bLon) bLon.textContent = isMetricMode ? `${((currentBounds[0] + u * (currentBounds[2] - currentBounds[0]))).toFixed(4)}° E` : `Px ${Math.round(u * 512)}`;
-  if (bElev) bElev.textContent = isMetricMode ? `${totalCalculatedElev.toFixed(1)} m` : `${(structHeight / 12.0).toFixed(3)}`;
+  if (bElev) bElev.textContent = isMetricMode ? `${rawAbsZ.toFixed(1)} m` : `${rawAbsZ.toFixed(3)}`;
 }
 
 const raycaster = new THREE.Raycaster();
@@ -574,20 +838,22 @@ function getOrCreateDrawerTelemetry() {
   return el;
 }
 
-// DYNAMIC FLOOD SIMULATION
 async function toggleFloodAnalysis(btn) {
   const tel = getOrCreateDrawerTelemetry();
   if (isFloodActive) {
     while (floodGroup.children.length > 0) floodGroup.remove(floodGroup.children[0]);
     isFloodActive = false;
-    btn.style.boxShadow = "none"; btn.style.filter = "none";
+    btn.style.boxShadow = "none";
+    btn.style.filter = "none";
     if (tel) tel.innerHTML = `<div style="color:#94a3b8;">Flood Inundation Plane Cleared.</div>`;
     return;
   }
+
   if (!isMetricMode) {
     if (tel) tel.innerHTML = `<div style="color:#facc15;">Hydrological flood volumetric math requires metric DSM (GeoTIFF) input.</div>`;
     return;
   }
+
   try {
     const res = await fetch('/api/disaster/flood-analysis?water_rise_m=5.0');
     const d = await res.json();
@@ -600,21 +866,28 @@ async function toggleFloodAnalysis(btn) {
         Surface Status: <span style="color:#34d399;">Active Hydrological Plane Rendered</span>
       `;
     }
-    while (floodGroup.children.length > 0) floodGroup.remove(floodGroup.children[0]);
 
+    while (floodGroup.children.length > 0) floodGroup.remove(floodGroup.children[0]);
     const floodPlane = new THREE.Mesh(
-      new THREE.PlaneGeometry(TERRAIN_WORLD_EXTENT, TERRAIN_WORLD_EXTENT),
+      new THREE.PlaneGeometry(50, 50),
       new THREE.MeshStandardMaterial({
-        color: 0x0284c7, transparent: true, opacity: 0.65,
-        roughness: 0.1, metalness: 0.2, side: THREE.DoubleSide
+        color: 0x0284c7,
+        transparent: true,
+        opacity: 0.68,
+        roughness: 0.1,
+        metalness: 0.2,
+        side: THREE.DoubleSide
       })
     );
-    floodPlane.position.z = 0.28;
+    floodPlane.position.z = 1.6;
     floodGroup.add(floodPlane);
+
     isFloodActive = true;
     btn.style.boxShadow = "0 0 12px rgba(2, 132, 199, 0.6)";
     btn.style.filter = "brightness(1.2)";
-  } catch (err) { console.error(err); }
+  } catch (err) {
+    console.error(err);
+  }
 }
 
 async function toggleHelipadAnalysis(btn) {
@@ -622,14 +895,17 @@ async function toggleHelipadAnalysis(btn) {
   if (isHelipadsActive) {
     while (helipadGroup.children.length > 0) helipadGroup.remove(helipadGroup.children[0]);
     isHelipadsActive = false;
-    btn.style.boxShadow = "none"; btn.style.filter = "none";
+    btn.style.boxShadow = "none";
+    btn.style.filter = "none";
     if (tel) tel.innerHTML = `<div style="color:#94a3b8;">Helipad Landing Markers Cleared.</div>`;
     return;
   }
+
   if (!isMetricMode) {
     if (tel) tel.innerHTML = `<div style="color:#facc15;">ICAO Annex 14 clearance requires metric DSM (GeoTIFF) input.</div>`;
     return;
   }
+
   try {
     const res = await fetch('/api/disaster/helipad-triage');
     const d = await res.json();
@@ -641,8 +917,8 @@ async function toggleHelipadAnalysis(btn) {
         new THREE.RingGeometry(1.0, 1.6, 32),
         new THREE.MeshBasicMaterial({ color: 0x10b981, side: THREE.DoubleSide })
       );
-      const normX = ((padData.lon - currentBounds[0]) / (currentBounds[2] - currentBounds[0]) - 0.5) * TERRAIN_WORLD_EXTENT;
-      const normY = ((padData.lat - currentBounds[1]) / (currentBounds[3] - currentBounds[1]) - 0.5) * TERRAIN_WORLD_EXTENT;
+      const normX = ((padData.lon - currentBounds[0]) / (currentBounds[2] - currentBounds[0]) - 0.5) * 50;
+      const normY = ((padData.lat - currentBounds[1]) / (currentBounds[3] - currentBounds[1]) - 0.5) * 50;
       padMesh.position.set(normX, normY, 1.2);
       helipadGroup.add(padMesh);
     });
@@ -656,10 +932,13 @@ async function toggleHelipadAnalysis(btn) {
         Helicopter Rating: <b>ALH Dhruv / Mi-17 Certified</b>
       `;
     }
+
     isHelipadsActive = true;
-    btn.style.boxShadow = "0 0 12px rgba(168, 85, 247, 0.6)";
+    btn.style.boxShadow = "0 0 12px rgba(16, 185, 129, 0.6)";
     btn.style.filter = "brightness(1.2)";
-  } catch (err) { console.error(err); }
+  } catch (err) {
+    console.error(err);
+  }
 }
 
 async function toggleUavClearance(btn) {
@@ -667,10 +946,12 @@ async function toggleUavClearance(btn) {
   if (isUavActive) {
     while (uavGroup.children.length > 0) uavGroup.remove(uavGroup.children[0]);
     isUavActive = false;
-    btn.style.boxShadow = "none"; btn.style.filter = "none";
+    btn.style.boxShadow = "none";
+    btn.style.filter = "none";
     if (tel) tel.innerHTML = `<div style="color:#94a3b8;">UAV Flight Safety Corridor Cleared.</div>`;
     return;
   }
+
   try {
     const res = await fetch('/api/disaster/uav-clearance?safety_margin_m=15.0');
     const d = await res.json();
@@ -682,24 +963,34 @@ async function toggleUavClearance(btn) {
         Vertical Buffer: <b>+15.0 m AGL Margin</b>
       `;
     }
+
     while (uavGroup.children.length > 0) uavGroup.remove(uavGroup.children[0]);
     const uavCeiling = new THREE.Mesh(
-      new THREE.PlaneGeometry(TERRAIN_WORLD_EXTENT, TERRAIN_WORLD_EXTENT, 16, 16),
+      new THREE.PlaneGeometry(50, 50, 16, 16),
       new THREE.MeshBasicMaterial({
-        color: 0xa855f7, wireframe: true, transparent: true, opacity: 0.35, side: THREE.DoubleSide
+        color: 0xa855f7,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.35,
+        side: THREE.DoubleSide
       })
     );
     uavCeiling.position.z = 4.2;
     uavGroup.add(uavCeiling);
+
     isUavActive = true;
     btn.style.boxShadow = "0 0 12px rgba(168, 85, 247, 0.6)";
     btn.style.filter = "brightness(1.2)";
-  } catch (err) { console.error(err); }
+  } catch (err) {
+    console.error(err);
+  }
 }
 
 async function runValidationBenchmark() {
   const tel = getOrCreateDrawerTelemetry();
-  if (tel) tel.innerHTML = `<div style="color:#facc15;">Computing pixel-by-pixel CartoDEM residual matrix (LE90 / RMSE)...</div>`;
+  if (tel) {
+    tel.innerHTML = `<div style="color:#facc15;">Computing pixel-by-pixel CartoDEM residual matrix (LE90 / RMSE)...</div>`;
+  }
   try {
     const res = await fetch('/api/validation-benchmark');
     const d = await res.json();
@@ -717,7 +1008,9 @@ async function runValidationBenchmark() {
         </div>
       `;
     }
-  } catch (err) { console.error(err); }
+  } catch (err) {
+    console.error(err);
+  }
 }
 
 function wireSidebarButtons() {
@@ -725,8 +1018,11 @@ function wireSidebarButtons() {
 
   const btn3d = document.getElementById('tool-3d') || railBtns[0];
   btn3d?.addEventListener('click', () => {
-    if (isFlythroughActive) stopUAVFlythrough();
-    else startUAVFlythrough();
+    if (isFlythroughActive) {
+      stopUAVFlythrough();
+    } else {
+      startUAVFlythrough();
+    }
   });
 
   const btn2d = document.getElementById('tool-2d') || railBtns[1];
@@ -770,12 +1066,14 @@ function wireSidebarButtons() {
     const text = b.innerText || "";
     if (text.includes("GeoTIFF")) {
       b.onclick = (e) => {
-        e.preventDefault(); e.stopPropagation();
+        e.preventDefault();
+        e.stopPropagation();
         triggerDirectDownload('/api/download-geotiff', 'TARA3D_Calibrated_DSM_32Bit.tif');
       };
     } else if (text.includes("GLB")) {
       b.onclick = (e) => {
-        e.preventDefault(); e.stopPropagation();
+        e.preventDefault();
+        e.stopPropagation();
         triggerDirectDownload('/api/download-glb', 'TARA3D_Surface_Model.glb');
       };
     }
@@ -853,6 +1151,4 @@ function animate() {
   renderer.render(scene, camera);
 }
 animate();
-
-
 

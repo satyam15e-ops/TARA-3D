@@ -25,3 +25,6 @@ inputs/*.tiff
 .idea/
 Thumbs.db
 Desktop.ini
+
+outputs/temp_input.dat
+outputs/*.dat

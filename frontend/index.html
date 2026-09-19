@@ -65,7 +65,7 @@
     </div>
     <label for="file-input" style="display: block; width: 100%; background: #0f172a; border: 1px dashed #38bdf8; border-radius: 6px; padding: 8px 10px; text-align: center; cursor: pointer; transition: all 0.2s;">
       <span id="remote-tile-label" style="font-size: 11px; font-weight: 600; color: #e2e8f0;">📂 Ingest GeoTIFF / PNG</span>
-      <div style="font-size: 9px; color: #64748b; margin-top: 2px;">Accepts up to 200MB (WGS84 / UTM)</div>
+      <div style="font-size: 9px; color: #64748b; margin-top: 2px;">Accepts up to 500MB (WGS84 / UTM)</div>
     </label>
     <input type="file" id="file-input" accept=".tif,.tiff,.png,.jpg,.jpeg" style="display: none;">
   </div>
@@ -102,7 +102,10 @@
       <button id="btn-uav" class="action-btn" style="background: rgba(168, 85, 247, 0.2); border-color: #a855f7; color: #c084fc;">🛸 UAV Flight Safety Corridor</button>
     </div>
           <button id="btn-benchmark" class="action-btn" style="background: rgba(234, 179, 8, 0.2); border-color: #eab308; color: #facc15; margin-top: 4px;">📊 Run CartoDEM Benchmark (50% Criteria)</button>
-<div id="drawer-telemetry" style="margin-top:12px; font-size:11px; color:#cbd5e1; line-height:1.6; background:#030712; padding:10px; border-radius:6px; border:1px solid #1e293b;">
+      <button id="btn-ruler" onclick="toggleMeasurementRuler(this)" style="display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; background: #0b1329; border: 1px solid #1e293b; color: #38bdf8; border-radius: 4px; font-size: 11px; cursor: pointer; text-align: left; margin-bottom: 6px;">
+        <span>📐</span> In-Situ Slope & Distance Ruler
+      </button>
+      <div id="drawer-telemetry" style="margin-top:12px; font-size:11px; color:#cbd5e1; line-height:1.6; background:#030712; padding:10px; border-radius:6px; border:1px solid #1e293b;">
       Click any tactical module above to generate model layers and volumetric triage readouts.
     </div>
   </div>
@@ -216,5 +219,7 @@
   <script src="js/viewer.js"></script>
 </body>
 </html>
+
+
 
 
