@@ -178,14 +178,28 @@ def process_geospatial_ingestion(file_bytes, filename):
         LATEST_SRTM_PATCH = final_dtm
 
         try:
-            geo_calibrator.export_geotiff(
-                final_dsm, 
-                "outputs/TARA3D_Calibrated_DSM.tif", 
-                bounds=bounds, 
-                crs_code="EPSG:4326", 
-                transform=native_transform
-            )
-        except Exception: pass
+            # Reconstruct exact WGS84 affine matrix matching the 512x512 matrix shape to coordinates
+            # bounds = [min_lon (West), min_lat (South), max_lon (East), max_lat (North)]
+            w_lon, s_lat, e_lon, n_lat = bounds[0], bounds[1], bounds[2], bounds[3]
+            dsm_h, dsm_w = final_dsm.shape
+            wgs84_transform = from_bounds(w_lon, s_lat, e_lon, n_lat, dsm_w, dsm_h)
+
+            out_tif = "outputs/TARA3D_Calibrated_DSM.tif"
+            with rasterio.open(
+                out_tif,
+                'w',
+                driver='GTiff',
+                height=dsm_h,
+                width=dsm_w,
+                count=1,
+                dtype=rasterio.float32,
+                crs='EPSG:4326',
+                transform=wgs84_transform,
+                nodata=-9999.0
+            ) as dst:
+                dst.write(final_dsm.astype(np.float32), 1)
+        except Exception as err:
+            print(f"[ERROR] GeoTIFF WGS84 export failed: {err}")
 
         return {
             "status": "success",
@@ -249,3 +263,4 @@ def process_geospatial_ingestion(file_bytes, filename):
             "image_url": f"/{preview_path}?v={np.random.randint(10000)}",
             "geotiff_url": None
         }
+
